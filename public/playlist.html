@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>To Watch - YouTube Playlist</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      /* Dark theme inspired by YouTube */
+      --bg-deep: #0f0f0f;
+      --bg-surface: #212121;
+      --bg-elevated: #272727;
+      --bg-card: #1a1a1a;
+      --bg-card-hover: #2a2a2a;
+      --text-primary: #f1f1f1;
+      --text-secondary: #aaaaaa;
+      --text-tertiary: #717171;
+      --border: #3f3f3f;
+      --accent: #e23636;
+      --accent-hover: #ff4444;
+      --radius: 8px;
+      --font-body: 'DM Sans', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html { font-size: 15px; }
+
+    body {
+      font-family: var(--font-body);
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      overflow: hidden;
+      height: 100vh;
+    }
+
+    /* Header */
+    .header {
+      height: 56px;
+      background: var(--bg-deep);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .header-title {
+      font-size: 1.2rem;
+      font-weight: 600;
+    }
+
+    .playlist-count {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+    }
+
+    .connection-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.8rem;
+      color: var(--text-tertiary);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-tertiary);
+    }
+
+    .status-dot.connected {
+      background: #2dcc70;
+    }
+
+    .btn {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      padding: 8px 16px;
+      border-radius: var(--radius);
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: all 0.15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn:hover {
+      background: var(--bg-card-hover);
+      color: var(--text-primary);
+    }
+
+    /* Main layout */
+    .main-container {
+      display: flex;
+      height: calc(100vh - 56px);
+      margin-top: 56px;
+    }
+
+    /* Left: Player */
+    .player-section {
+      flex: 1;
+      background: var(--bg-deep);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .player-wrapper {
+      flex: 0 0 auto;
+      background: #000;
+      position: relative;
+      width: 100%;
+      padding-top: 56.25%; /* 16:9 */
+    }
+
+    #player {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    .player-info {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .player-title {
+      font-size: 1.25rem;
+      font-weight: 500;
+      line-height: 1.4;
+      margin-bottom: 8px;
+    }
+
+    .player-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+    }
+
+    .player-channel {
+      font-weight: 500;
+    }
+
+    .player-meta-separator {
+      color: var(--text-tertiary);
+    }
+
+    .empty-player {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      color: var(--text-secondary);
+    }
+
+    .empty-player svg {
+      width: 80px;
+      height: 80px;
+      opacity: 0.3;
+    }
+
+    /* Right: Playlist */
+    .playlist-section {
+      width: 400px;
+      background: var(--bg-surface);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .playlist-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .playlist-header h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .playlist-stats {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+    }
+
+    .playlist-list {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    .playlist-item {
+      display: flex;
+      gap: 12px;
+      padding: 8px 12px;
+      cursor: pointer;
+      transition: background 0.15s;
+      position: relative;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .playlist-item:hover {
+      background: var(--bg-elevated);
+    }
+
+    .playlist-item.active {
+      background: var(--bg-card);
+    }
+
+    .playlist-item.active::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      background: var(--accent);
+    }
+
+    .playlist-thumb {
+      position: relative;
+      flex-shrink: 0;
+      width: 120px;
+      height: 68px;
+      border-radius: 6px;
+      overflow: hidden;
+      background: var(--bg-elevated);
+    }
+
+    .playlist-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .playlist-info {
+      flex: 1;
+      min-width: 0;
+      padding-right: 8px;
+    }
+
+    .playlist-item-title {
+      font-size: 0.85rem;
+      font-weight: 500;
+      line-height: 1.3;
+      margin-bottom: 4px;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      color: var(--text-primary);
+    }
+
+    .playlist-item-channel {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+
+    .remove-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.6);
+      border: none;
+      color: #fff;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: all 0.15s;
+      z-index: 10;
+    }
+
+    .playlist-item:hover .remove-btn {
+      opacity: 1;
+    }
+
+    .remove-btn:hover {
+      background: var(--accent);
+      transform: scale(1.1);
+    }
+
+    .remove-btn svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .empty-state {
+      padding: 40px 20px;
+      text-align: center;
+      color: var(--text-secondary);
+    }
+
+    .empty-state svg {
+      width: 60px;
+      height: 60px;
+      margin-bottom: 16px;
+      opacity: 0.3;
+    }
+
+    .empty-state h3 {
+      font-size: 1rem;
+      font-weight: 500;
+      margin-bottom: 8px;
+    }
+
+    .empty-state p {
+      font-size: 0.85rem;
+    }
+
+    /* Loading spinner */
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    /* Scrollbar */
+    .playlist-list::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .playlist-list::-webkit-scrollbar-track {
+      background: var(--bg-surface);
+    }
+
+    .playlist-list::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 4px;
+    }
+
+    .playlist-list::-webkit-scrollbar-thumb:hover {
+      background: #5f5f5f;
+    }
+
+    /* Toast notifications */
+    .toast-container {
+      position: fixed;
+      bottom: 24px;
+      left: 24px;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .toast {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      padding: 12px 16px;
+      border-radius: var(--radius);
+      font-size: 0.9rem;
+      color: var(--text-primary);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      animation: toast-in 0.3s ease;
+      max-width: 400px;
+    }
+
+    .toast.success {
+      border-color: #2dcc70;
+    }
+
+    .toast.error {
+      border-color: var(--accent);
+    }
+
+    @keyframes toast-in {
+      from { transform: translateX(-12px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <h1 class="header-title">To Watch</h1>
+      <span class="playlist-count" id="playlistCount">0 videos</span>
+    </div>
+    <div class="connection-status">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">Connecting...</span>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <div class="main-container">
+    <!-- Left: Video Player -->
+    <div class="player-section">
+      <div class="player-wrapper">
+        <div id="player"></div>
+        <div class="empty-player" id="emptyPlayer">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="5 3 19 12 5 21 5 3"/>
+          </svg>
+          <div style="font-size: 1.1rem; font-weight: 500;">No video playing</div>
+          <div style="font-size: 0.9rem; opacity: 0.7;">Select a video from the playlist</div>
+        </div>
+      </div>
+      <div class="player-info" id="playerInfo" style="display:none;">
+        <div class="player-title" id="playerTitle"></div>
+        <div class="player-meta">
+          <span class="player-channel" id="playerChannel"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Playlist -->
+    <div class="playlist-section">
+      <div class="playlist-header">
+        <h2>Playlist</h2>
+        <div class="playlist-stats" id="playlistStats">Loading...</div>
+      </div>
+      <div class="playlist-list" id="playlistList">
+        <div style="padding: 40px 20px; text-align: center;">
+          <div class="spinner"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script>
+    // -----------------------------------------------------------------------
+    // State
+    // -----------------------------------------------------------------------
+    let sessionId = null;
+    let playlistId = null;
+    let playlistItems = [];
+    let currentVideoIndex = -1;
+    let player = null;
+    let playerReady = false;
+    let ws = null;
+    let markedForRemoval = null; // Track video marked for removal at 90%
+    let checkProgressInterval = null;
+
+    // -----------------------------------------------------------------------
+    // Init
+    // -----------------------------------------------------------------------
+    async function init() {
+      // Get session from localStorage
+      sessionId = localStorage.getItem('yt_subs_sid');
+
+      if (!sessionId) {
+        showToast('Missing session. Please sign in from the main feed.', 'error');
+        return;
+      }
+
+      // Fetch settings to get playlist ID
+      try {
+        const resp = await fetch('/api/settings', {
+          headers: { 'x-session-id': sessionId }
+        });
+
+        if (resp.ok) {
+          const settings = await resp.json();
+          playlistId = settings.playlistId;
+
+          if (!playlistId) {
+            // Playlist ID not set - try to ensure playlist exists
+            console.log('No playlist ID in settings, calling /api/playlist/ensure...');
+            const ensureResp = await fetch('/api/playlist/ensure', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-session-id': sessionId
+              }
+            });
+
+            if (ensureResp.ok) {
+              const plData = await ensureResp.json();
+              playlistId = plData.playlistId;
+              console.log('Playlist ensured:', playlistId);
+            } else {
+              showToast('Failed to create playlist. Please go back to the main feed.', 'error');
+              return;
+            }
+          }
+        } else {
+          showToast('Failed to load settings. Please sign in from the main feed.', 'error');
+          return;
+        }
+      } catch (err) {
+        console.error('Error loading settings:', err);
+        showToast('Failed to connect to server.', 'error');
+        return;
+      }
+
+      // Load YouTube iframe API
+      loadYouTubeAPI();
+
+      // Connect WebSocket
+      connectWebSocket();
+
+      // Load playlist items
+      await loadPlaylist();
+
+      // Remove marked videos when closing the page
+      window.addEventListener('beforeunload', () => {
+        if (markedForRemoval && currentVideoIndex >= 0) {
+          const currentVideo = playlistItems[currentVideoIndex];
+          if (currentVideo && currentVideo.videoId === markedForRemoval) {
+            // Use sendBeacon for reliable delivery during page unload
+            const data = JSON.stringify({
+              playlistId: playlistId,
+              videoId: markedForRemoval
+            });
+            navigator.sendBeacon('/api/playlist/remove', data);
+          }
+        }
+      });
+    }
+
+    // -----------------------------------------------------------------------
+    // YouTube Player API
+    // -----------------------------------------------------------------------
+    function loadYouTubeAPI() {
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      const firstScriptTag = document.getElementsByTagName('script')[0];
+      firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+    }
+
+    // Called automatically when YouTube API is ready
+    window.onYouTubeIframeAPIReady = function() {
+      console.log('YouTube iframe API ready');
+      player = new YT.Player('player', {
+        height: '100%',
+        width: '100%',
+        playerVars: {
+          autoplay: 0,
+          controls: 1,
+          rel: 0,
+          modestbranding: 1,
+        },
+        events: {
+          onReady: onPlayerReady,
+          onStateChange: onPlayerStateChange,
+        }
+      });
+    };
+
+    function onPlayerReady(event) {
+      console.log('YouTube player ready');
+      playerReady = true;
+      // Auto-load first video if playlist is already loaded
+      if (currentVideoIndex === -1 && playlistItems.length > 0) {
+        console.log('Player ready - auto-loading first video');
+        playVideo(0);
+      }
+    }
+
+    function onPlayerStateChange(event) {
+      // YT.PlayerState.PLAYING = 1, YT.PlayerState.PAUSED = 2, YT.PlayerState.ENDED = 0
+
+      if (event.data === YT.PlayerState.PLAYING) {
+        // Start checking progress when video is playing
+        if (!checkProgressInterval) {
+          checkProgressInterval = setInterval(checkVideoProgress, 5000);
+        }
+      } else if (event.data === YT.PlayerState.PAUSED || event.data === YT.PlayerState.ENDED) {
+        // Stop checking progress when paused or ended
+        if (checkProgressInterval) {
+          clearInterval(checkProgressInterval);
+          checkProgressInterval = null;
+        }
+      }
+
+      // When video ends, remove it if marked or if it reached completion
+      if (event.data === YT.PlayerState.ENDED && currentVideoIndex >= 0) {
+        const currentVideo = playlistItems[currentVideoIndex];
+        if (currentVideo) {
+          console.log(`Video ${currentVideo.videoId} ended, auto-removing...`);
+          removeVideo(currentVideo.videoId, currentVideoIndex, true);
+        }
+      }
+    }
+
+    function checkVideoProgress() {
+      if (!player || !player.getDuration) return;
+
+      const duration = player.getDuration();
+      const current = player.getCurrentTime();
+
+      if (duration > 0 && current > 0 && currentVideoIndex >= 0) {
+        const progress = current / duration;
+        const currentVideo = playlistItems[currentVideoIndex];
+
+        // Mark for removal when 90% is reached, but don't remove yet
+        if (progress >= 0.9 && currentVideo && markedForRemoval !== currentVideo.videoId) {
+          console.log(`Video ${currentVideo.videoId} reached 90%, marking for removal...`);
+          markedForRemoval = currentVideo.videoId;
+        }
+      }
+    }
+
+    function playVideo(index) {
+      if (index < 0 || index >= playlistItems.length) return;
+      if (!playerReady) {
+        console.log('Player not ready yet, will auto-load when ready');
+        return;
+      }
+
+      // Before switching videos, remove the previous video if it was marked at 90%
+      if (markedForRemoval && currentVideoIndex >= 0) {
+        const prevVideo = playlistItems[currentVideoIndex];
+        if (prevVideo && prevVideo.videoId === markedForRemoval) {
+          console.log(`Removing previously marked video ${markedForRemoval} before switching...`);
+          removeVideo(markedForRemoval, currentVideoIndex, false); // Don't auto-play next
+          markedForRemoval = null;
+          // After removal, the indices shift, so we need to adjust
+          if (index > currentVideoIndex) {
+            index--;
+          }
+        } else {
+          markedForRemoval = null;
+        }
+      }
+
+      currentVideoIndex = index;
+      const video = playlistItems[index];
+
+      // Load video (cue without playing)
+      if (player && player.cueVideoById) {
+        player.cueVideoById(video.videoId);
+      }
+
+      // Update UI
+      document.getElementById('emptyPlayer').style.display = 'none';
+      document.getElementById('playerInfo').style.display = 'block';
+      document.getElementById('playerTitle').textContent = video.title;
+      document.getElementById('playerChannel').textContent = video.channelName;
+
+      // Update playlist item active state
+      document.querySelectorAll('.playlist-item').forEach((el, i) => {
+        el.classList.toggle('active', i === index);
+      });
+    }
+
+    // -----------------------------------------------------------------------
+    // WebSocket
+    // -----------------------------------------------------------------------
+    function connectWebSocket() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${window.location.host}`);
+
+      ws.onopen = () => {
+        console.log('📡 WebSocket connected');
+        updateConnectionStatus(true);
+      };
+
+      ws.onclose = () => {
+        console.log('📡 WebSocket disconnected');
+        updateConnectionStatus(false);
+        // Reconnect after 3 seconds
+        setTimeout(connectWebSocket, 3000);
+      };
+
+      ws.onerror = (err) => {
+        console.error('📡 WebSocket error:', err);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          handleWebSocketMessage(message);
+        } catch (err) {
+          console.error('Failed to parse WebSocket message:', err);
+        }
+      };
+    }
+
+    function handleWebSocketMessage(message) {
+      console.log('📡 WebSocket message received:', message);
+      console.log('📡 Current playlistId:', playlistId);
+      console.log('📡 Message playlistId:', message.data?.playlistId);
+
+      if (message.type === 'videoAdded' && message.data.playlistId === playlistId) {
+        console.log('📡 Video added - reloading playlist in 1s');
+        showToast('New video added to playlist', 'success');
+        // Delay reload to give YouTube API time to propagate changes
+        setTimeout(() => loadPlaylist(), 1000);
+      } else if (message.type === 'videoRemoved' && message.data.playlistId === playlistId) {
+        console.log('📡 Video removed - reloading playlist in 1s');
+        showToast('Video removed from playlist', 'success');
+        // Delay reload to give YouTube API time to propagate changes
+        setTimeout(() => loadPlaylist(), 1000);
+      } else {
+        console.log('📡 Message ignored (type or playlistId mismatch)');
+      }
+    }
+
+    function updateConnectionStatus(connected) {
+      const dot = document.getElementById('statusDot');
+      const text = document.getElementById('statusText');
+
+      if (connected) {
+        dot.classList.add('connected');
+        text.textContent = 'Connected';
+      } else {
+        dot.classList.remove('connected');
+        text.textContent = 'Disconnected';
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Load Playlist
+    // -----------------------------------------------------------------------
+    async function loadPlaylist() {
+      try {
+        const resp = await fetch(`/api/playlist/items?playlistId=${playlistId}`, {
+          headers: { 'x-session-id': sessionId }
+        });
+
+        if (!resp.ok) {
+          if (resp.status === 401) {
+            showToast('Session expired. Please sign in again.', 'error');
+            setTimeout(() => {
+              window.location.href = '/';
+            }, 2000);
+            return;
+          }
+          throw new Error(`Failed to load playlist (${resp.status})`);
+        }
+
+        const data = await resp.json();
+        playlistItems = data.items;
+
+        renderPlaylist();
+        updatePlaylistStats();
+
+        // Auto-load first video if no video is currently loaded and player is ready
+        if (currentVideoIndex === -1 && playlistItems.length > 0 && playerReady) {
+          console.log('Auto-loading first video');
+          playVideo(0);
+        }
+      } catch (err) {
+        console.error('Error loading playlist:', err);
+        showToast('Error loading playlist: ' + err.message, 'error');
+      }
+    }
+
+    function renderPlaylist() {
+      const container = document.getElementById('playlistList');
+
+      if (playlistItems.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
+            </svg>
+            <h3>No videos in playlist</h3>
+            <p>Add videos from the main feed to start watching</p>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = '';
+      playlistItems.forEach((video, index) => {
+        const item = document.createElement('div');
+        item.className = 'playlist-item';
+        if (index === currentVideoIndex) item.classList.add('active');
+
+        item.innerHTML = `
+          <div class="playlist-thumb">
+            <img src="${video.thumbnail}" alt="" loading="lazy">
+          </div>
+          <div class="playlist-info">
+            <div class="playlist-item-title">${escapeHtml(video.title)}</div>
+            <div class="playlist-item-channel">${escapeHtml(video.channelName)}</div>
+          </div>
+          <button class="remove-btn" title="Remove from playlist">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        `;
+
+        // Play video on click (except when clicking remove button)
+        item.addEventListener('click', (e) => {
+          if (!e.target.closest('.remove-btn')) {
+            playVideo(index);
+          }
+        });
+
+        // Remove button
+        const removeBtn = item.querySelector('.remove-btn');
+        removeBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          removeVideo(video.videoId, index);
+        });
+
+        container.appendChild(item);
+      });
+    }
+
+    function updatePlaylistStats() {
+      const count = playlistItems.length;
+      document.getElementById('playlistCount').textContent = `${count} video${count !== 1 ? 's' : ''}`;
+      document.getElementById('playlistStats').textContent = `${count} video${count !== 1 ? 's' : ''}`;
+    }
+
+    // -----------------------------------------------------------------------
+    // Remove Video
+    // -----------------------------------------------------------------------
+    async function removeVideo(videoId, index, autoRemove = false) {
+      try {
+        const resp = await fetch('/api/playlist/remove', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-session-id': sessionId
+          },
+          body: JSON.stringify({ playlistId, videoId })
+        });
+
+        if (!resp.ok) {
+          throw new Error('Failed to remove video');
+        }
+
+        // If this was the currently playing video, play the next one
+        if (index === currentVideoIndex) {
+          const nextIndex = Math.min(index, playlistItems.length - 2);
+          if (nextIndex >= 0) {
+            setTimeout(() => playVideo(nextIndex), 500);
+          } else {
+            currentVideoIndex = -1;
+            document.getElementById('emptyPlayer').style.display = 'flex';
+            document.getElementById('playerInfo').style.display = 'none';
+            if (player && player.stopVideo) {
+              player.stopVideo();
+            }
+          }
+        } else if (index < currentVideoIndex) {
+          // Adjust current index if we removed a video before it
+          currentVideoIndex--;
+        }
+
+        // Update local state
+        playlistItems.splice(index, 1);
+        renderPlaylist();
+        updatePlaylistStats();
+
+        if (autoRemove) {
+          showToast('Video marked as watched and removed', 'success');
+        } else {
+          showToast('Removed from playlist', 'success');
+        }
+      } catch (err) {
+        console.error('Error removing video:', err);
+        showToast('Failed to remove video', 'error');
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.textContent = message;
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+      }, 4000);
+    }
+
+    // -----------------------------------------------------------------------
+    // Boot
+    // -----------------------------------------------------------------------
+    init();
+  </script>
+</body>
+</html>
