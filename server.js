@@ -1,8 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const { google } = require('googleapis');
-const xml2js = require('xml2js');
-const fetch = require('node-fetch');
+const Database = require('better-sqlite3');
 const path = require('path');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -11,14 +10,13 @@ const http = require('http');
 
 const app = express();
 const server = http.createServer(app);
-app.use(express.json({ limit: '10mb' })); // Increase limit for cache with 5000+ videos
+app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------------------------------------------------------------------------
-// Logging setup
+// Logging & Quota
 // ---------------------------------------------------------------------------
 const LOG_FILE = path.join(__dirname, 'api-usage.log');
-const CACHE_FILE = path.join(__dirname, 'feed-cache.json');
 
 function log(message, data = {}) {
   const timestamp = new Date().toISOString();
@@ -27,32 +25,101 @@ function log(message, data = {}) {
   fs.appendFileSync(LOG_FILE, logEntry);
 }
 
-// Quota tracking (rough estimates)
 let quotaUsedToday = 0;
 let quotaResetDate = new Date().toDateString();
 
 function trackQuota(operation, units) {
-  // Reset quota counter at midnight
   const today = new Date().toDateString();
   if (today !== quotaResetDate) {
     log('QUOTA RESET', { previousTotal: quotaUsedToday });
     quotaUsedToday = 0;
     quotaResetDate = today;
   }
-
   quotaUsedToday += units;
   const remaining = 10000 - quotaUsedToday;
   log(`API QUOTA: ${operation}`, { units, totalToday: quotaUsedToday, remaining });
-
-  // Warn if getting close to limit
   if (remaining < 1000 && remaining > 0) {
-    console.warn(`⚠️  WARNING: Only ${remaining} quota units remaining today!`);
+    console.warn(`WARNING: Only ${remaining} quota units remaining today!`);
   } else if (remaining <= 0) {
-    console.error(`❌ QUOTA EXCEEDED: ${quotaUsedToday}/10000 units used today!`);
+    console.error(`QUOTA EXCEEDED: ${quotaUsedToday}/10000 units used today!`);
   }
 }
 
+function canSpendQuota(units) {
+  const today = new Date().toDateString();
+  if (today !== quotaResetDate) { quotaUsedToday = 0; quotaResetDate = today; }
+  return quotaUsedToday + units <= 8000; // 20% reserve
+}
+
 const PORT = process.env.PORT || 3000;
+
+// ---------------------------------------------------------------------------
+// SQLite setup
+// ---------------------------------------------------------------------------
+fs.mkdirSync(path.join(__dirname, 'cache'), { recursive: true });
+const db = new Database(path.join(__dirname, 'cache', 'videos.db'));
+db.pragma('journal_mode = WAL');
+db.pragma('synchronous = NORMAL');
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS channels (
+    channel_id TEXT PRIMARY KEY,
+    channel_name TEXT NOT NULL,
+    uploads_playlist_id TEXT,
+    last_checked INTEGER,
+    backfill_complete INTEGER DEFAULT 0,
+    next_page_token TEXT,
+    total_results INTEGER DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS videos (
+    video_id TEXT PRIMARY KEY,
+    channel_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    channel_name TEXT NOT NULL,
+    published TEXT,
+    thumbnail TEXT DEFAULT '',
+    description TEXT DEFAULT '',
+    duration TEXT DEFAULT '',
+    views TEXT DEFAULT '0',
+    FOREIGN KEY (channel_id) REFERENCES channels(channel_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_videos_channel ON videos(channel_id);
+  CREATE INDEX IF NOT EXISTS idx_videos_published ON videos(published DESC);
+`);
+
+// Prepared statements
+const sql = {
+  getChannel: db.prepare('SELECT * FROM channels WHERE channel_id = ?'),
+  getChannelVideoIds: db.prepare('SELECT video_id FROM videos WHERE channel_id = ?'),
+  upsertChannel: db.prepare(`
+    INSERT INTO channels (channel_id, channel_name, uploads_playlist_id, last_checked, backfill_complete, next_page_token, total_results)
+    VALUES (@channel_id, @channel_name, @uploads_playlist_id, @last_checked, @backfill_complete, @next_page_token, @total_results)
+    ON CONFLICT(channel_id) DO UPDATE SET
+      channel_name = @channel_name, last_checked = @last_checked,
+      backfill_complete = @backfill_complete, next_page_token = @next_page_token,
+      total_results = @total_results
+  `),
+  insertVideo: db.prepare(`
+    INSERT OR IGNORE INTO videos (video_id, channel_id, title, channel_name, published, thumbnail, description, duration, views)
+    VALUES (@videoId, @channelId, @title, @channelName, @published, @thumbnail, @description, @duration, @views)
+  `),
+  getAllVideos: db.prepare(`
+    SELECT video_id AS videoId, title, channel_id AS channelId, channel_name AS channelName,
+           published, thumbnail, description, duration, views
+    FROM videos ORDER BY published DESC
+  `),
+  getAllChannels: db.prepare('SELECT channel_id AS channelId, channel_name AS title FROM channels ORDER BY channel_name'),
+  totalVideos: db.prepare('SELECT COUNT(*) AS count FROM videos'),
+  latestCheck: db.prepare('SELECT MAX(last_checked) AS ts FROM channels'),
+};
+
+const insertVideos = db.transaction((videos) => {
+  let inserted = 0;
+  for (const v of videos) { inserted += sql.insertVideo.run(v).changes; }
+  return inserted;
+});
 
 // ---------------------------------------------------------------------------
 // Google OAuth2 setup
@@ -64,11 +131,11 @@ const oauth2Client = new google.auth.OAuth2(
 );
 
 const SCOPES = [
-  'https://www.googleapis.com/auth/youtube.readonly',      // read subs
-  'https://www.googleapis.com/auth/youtube',                // manage playlists
+  'https://www.googleapis.com/auth/youtube.readonly',
+  'https://www.googleapis.com/auth/youtube',
 ];
 
-// Simple in-memory session store (swap for Redis/DB in prod)
+// Simple in-memory session store
 const sessions = new Map();
 
 function sessionMiddleware(req, res, next) {
@@ -81,30 +148,38 @@ function sessionMiddleware(req, res, next) {
 app.use(sessionMiddleware);
 
 // ---------------------------------------------------------------------------
-// WebSocket setup for real-time playlist updates
+// WebSocket
 // ---------------------------------------------------------------------------
 const wss = new WebSocket.Server({ server });
 
 wss.on('connection', (ws) => {
-  console.log('📡 WebSocket client connected');
-
-  ws.on('close', () => {
-    console.log('📡 WebSocket client disconnected');
-  });
+  console.log('WebSocket client connected');
+  ws.on('close', () => console.log('WebSocket client disconnected'));
 });
 
-// Broadcast playlist updates to all connected clients
-function broadcastPlaylistUpdate(type, data) {
-  const message = JSON.stringify({ type, data });
-  console.log(`📡 Broadcasting ${type} to ${wss.clients.size} clients:`, data);
-  let sentCount = 0;
-  wss.clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(message);
-      sentCount++;
-    }
+function broadcast(type, data) {
+  const msg = JSON.stringify({ type, data });
+  wss.clients.forEach((c) => {
+    if (c.readyState === WebSocket.OPEN) c.send(msg);
   });
-  console.log(`📡 Broadcast sent to ${sentCount}/${wss.clients.size} connected clients`);
+}
+
+// ---------------------------------------------------------------------------
+// Helper: authenticated YouTube client
+// ---------------------------------------------------------------------------
+function getYoutube(session) {
+  const client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    process.env.REDIRECT_URI || `http://localhost:${PORT}/auth/callback`
+  );
+  client.setCredentials(session.tokens);
+  return google.youtube({ version: 'v3', auth: client });
+}
+
+function getUploadsPlaylistId(channelId) {
+  if (channelId.startsWith('UC')) return 'UU' + channelId.slice(2);
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -130,20 +205,12 @@ app.get('/auth/callback', async (req, res) => {
     sessions.set(sid, {
       tokens,
       created: Date.now(),
-      settings: {
-        videosPerRow: 1,
-        thumbSize: 168,
-        density: 'normal',
-        playlistId: null
-      }
+      settings: { videosPerRow: 1, thumbSize: 168, density: 'normal', playlistId: null },
     });
     log('Session created', { sid: sid.substring(0, 8) + '...' });
-
-    // Redirect back to the app with the session id
     res.redirect(`/?sid=${sid}`);
   } catch (err) {
     log('OAuth callback error', { error: err.message });
-    console.error('OAuth callback error:', err.message);
     res.redirect('/?error=auth_failed');
   }
 });
@@ -153,187 +220,340 @@ app.get('/auth/status', (req, res) => {
 });
 
 app.get('/api/quota', (req, res) => {
-  const remaining = 10000 - quotaUsedToday;
   res.json({
     used: quotaUsedToday,
     total: 10000,
-    remaining,
+    remaining: 10000 - quotaUsedToday,
     resetDate: quotaResetDate,
-    warning: remaining < 1000
+    warning: 10000 - quotaUsedToday < 1000,
   });
 });
 
-// Settings endpoints
+// ---------------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------------
 app.get('/api/settings', (req, res) => {
   if (!req.session) return res.status(401).json({ error: 'Not authenticated' });
-  const settings = req.session.settings || {
-    videosPerRow: 1,
-    thumbSize: 168,
-    density: 'normal',
-    playlistId: null
-  };
-  res.json(settings);
+  res.json(req.session.settings || { videosPerRow: 1, thumbSize: 168, density: 'normal', playlistId: null });
 });
 
 app.post('/api/settings', (req, res) => {
   if (!req.session) return res.status(401).json({ error: 'Not authenticated' });
-  req.session.settings = {
-    ...req.session.settings,
-    ...req.body
-  };
+  req.session.settings = { ...req.session.settings, ...req.body };
   res.json({ success: true });
 });
 
-// Cache endpoints
-app.get('/api/cache', (req, res) => {
-  try {
-    if (fs.existsSync(CACHE_FILE)) {
-      const cache = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
-      res.json(cache);
-    } else {
-      res.status(404).json({ error: 'No cache found' });
-    }
-  } catch (err) {
-    log('Cache load error', { error: err.message });
-    res.status(500).json({ error: 'Failed to load cache' });
-  }
-});
+// ---------------------------------------------------------------------------
+// Core YouTube API fetch logic
+// ---------------------------------------------------------------------------
+async function fetchAllSubscriptions(youtube) {
+  let allSubs = [];
+  let pageToken = undefined;
+  let pageCount = 0;
 
-app.post('/api/cache', (req, res) => {
-  try {
-    const cache = {
-      timestamp: Date.now(),
-      channels: req.body.channels,
-      videos: req.body.videos,
-      playlistId: req.body.playlistId,
-      playlistUrl: req.body.playlistUrl
-    };
-    fs.writeFileSync(CACHE_FILE, JSON.stringify(cache));
-    log('Cache saved', {
-      channels: cache.channels?.length || 0,
-      videos: cache.videos?.length || 0,
-      sizeKB: Math.round(JSON.stringify(cache).length / 1024)
+  do {
+    const resp = await youtube.subscriptions.list({
+      part: 'snippet',
+      mine: true,
+      maxResults: 50,
+      pageToken,
+      order: 'alphabetical',
     });
-    res.json({ success: true });
-  } catch (err) {
-    log('Cache save error', { error: err.message });
-    res.status(500).json({ error: 'Failed to save cache' });
-  }
-});
+    allSubs.push(
+      ...resp.data.items.map((item) => ({
+        channelId: item.snippet.resourceId.channelId,
+        title: item.snippet.title,
+        thumbnail: item.snippet.thumbnails?.default?.url || '',
+      }))
+    );
+    pageToken = resp.data.nextPageToken;
+    pageCount++;
+  } while (pageToken);
 
-// ---------------------------------------------------------------------------
-// Helper: get an authenticated YouTube client for a session
-// ---------------------------------------------------------------------------
-function getYoutube(session) {
-  const client = new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.REDIRECT_URI || `http://localhost:${PORT}/auth/callback`
+  trackQuota('subscriptions.list', pageCount * 3);
+  return allSubs;
+}
+
+async function fetchChannelVideos(youtube, channel) {
+  const uploadsPlaylistId = getUploadsPlaylistId(channel.channelId);
+  if (!uploadsPlaylistId) {
+    return { newVideos: [], totalResults: 0, backfillComplete: true, nextPageToken: null };
+  }
+
+  const existingVideoIds = new Set(
+    sql.getChannelVideoIds.all(channel.channelId).map((r) => r.video_id)
   );
-  client.setCredentials(session.tokens);
-  return google.youtube({ version: 'v3', auth: client });
+  const meta = sql.getChannel.get(channel.channelId);
+
+  const newVideos = [];
+  const seenInFetch = new Set();
+  let pageToken = undefined;
+  let totalResults = 0;
+  let reachedExisting = false;
+
+  do {
+    if (!canSpendQuota(1)) break;
+
+    let response;
+    try {
+      response = await youtube.playlistItems.list({
+        part: 'snippet,contentDetails',
+        playlistId: uploadsPlaylistId,
+        maxResults: 50,
+        pageToken,
+      });
+    } catch (err) {
+      if (err.code === 404) {
+        return { newVideos: [], totalResults: 0, backfillComplete: true, nextPageToken: null };
+      }
+      throw err;
+    }
+
+    trackQuota('playlistItems.list', 1);
+    totalResults = response.data.pageInfo.totalResults;
+
+    for (const item of response.data.items) {
+      const videoId = item.contentDetails.videoId;
+      if (existingVideoIds.has(videoId)) { reachedExisting = true; break; }
+      if (seenInFetch.has(videoId)) continue;
+      seenInFetch.add(videoId);
+
+      newVideos.push({
+        videoId,
+        title: item.snippet.title,
+        channelId: channel.channelId,
+        channelName: channel.title,
+        published: item.contentDetails.videoPublishedAt || item.snippet.publishedAt,
+        thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || '',
+        description: item.snippet.description || '',
+        duration: '',
+        views: '0',
+      });
+    }
+
+    pageToken = reachedExisting ? null : response.data.nextPageToken;
+  } while (pageToken && !reachedExisting && canSpendQuota(1));
+
+  const backfillComplete = !pageToken && !reachedExisting
+    ? true
+    : reachedExisting
+      ? meta?.backfill_complete === 1
+      : false;
+  const nextPageTokenToSave = !reachedExisting && pageToken
+    ? pageToken
+    : meta?.next_page_token || null;
+
+  return { newVideos, totalResults, backfillComplete, nextPageToken: nextPageTokenToSave };
+}
+
+async function enrichVideos(youtube, videos) {
+  for (let i = 0; i < videos.length; i += 50) {
+    if (!canSpendQuota(1)) break;
+    const batch = videos.slice(i, i + 50);
+    const response = await youtube.videos.list({
+      part: 'contentDetails,statistics',
+      id: batch.map((v) => v.videoId).join(','),
+    });
+    trackQuota('videos.list', 1);
+    for (const detail of response.data.items) {
+      const video = batch.find((v) => v.videoId === detail.id);
+      if (video) {
+        video.duration = detail.contentDetails?.duration || '';
+        video.views = detail.statistics?.viewCount || '0';
+      }
+    }
+  }
+}
+
+async function backfillChannel(youtube, channel) {
+  const meta = sql.getChannel.get(channel.channelId);
+  if (!meta || meta.backfill_complete === 1 || !meta.next_page_token) return 0;
+
+  const uploadsPlaylistId = getUploadsPlaylistId(channel.channelId);
+  let pageToken = meta.next_page_token;
+  let newVideos = [];
+
+  do {
+    if (!canSpendQuota(1)) break;
+    let response;
+    try {
+      response = await youtube.playlistItems.list({
+        part: 'snippet,contentDetails',
+        playlistId: uploadsPlaylistId,
+        maxResults: 50,
+        pageToken,
+      });
+    } catch (err) {
+      log('Backfill error', { channel: channel.title, error: err.message });
+      break;
+    }
+
+    trackQuota('playlistItems.list', 1);
+
+    for (const item of response.data.items) {
+      newVideos.push({
+        videoId: item.contentDetails.videoId,
+        title: item.snippet.title,
+        channelId: channel.channelId,
+        channelName: channel.title,
+        published: item.contentDetails.videoPublishedAt || item.snippet.publishedAt,
+        thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || '',
+        description: item.snippet.description || '',
+        duration: '',
+        views: '0',
+      });
+    }
+
+    pageToken = response.data.nextPageToken;
+    sql.upsertChannel.run({
+      channel_id: channel.channelId,
+      channel_name: channel.title,
+      uploads_playlist_id: uploadsPlaylistId,
+      last_checked: Date.now(),
+      backfill_complete: pageToken ? 0 : 1,
+      next_page_token: pageToken || null,
+      total_results: meta.total_results,
+    });
+  } while (pageToken && canSpendQuota(1));
+
+  await enrichVideos(youtube, newVideos);
+  return insertVideos(newVideos);
 }
 
 // ---------------------------------------------------------------------------
-// API: Fetch subscriptions (paginated)
+// Feed endpoints
+// ---------------------------------------------------------------------------
+app.get('/api/feed', (req, res) => {
+  const videos = sql.getAllVideos.all();
+  const channels = sql.getAllChannels.all();
+  const latest = sql.latestCheck.get();
+  res.json({
+    timestamp: latest?.ts || null,
+    channels,
+    videos,
+    totalVideos: videos.length,
+    totalChannels: channels.length,
+  });
+});
+
+let activeRefresh = null;
+
+app.post('/api/feed/refresh', (req, res) => {
+  if (!req.session) return res.status(401).json({ error: 'Not authenticated' });
+  if (activeRefresh) return res.json({ status: 'already_running' });
+
+  activeRefresh = doRefresh(req.session)
+    .catch((err) => {
+      log('Refresh error', { error: err.message });
+      broadcast('refreshError', { error: err.message });
+    })
+    .finally(() => { activeRefresh = null; });
+
+  res.json({ status: 'started' });
+});
+
+async function doRefresh(session) {
+  const youtube = getYoutube(session);
+
+  // Phase 1: Get subscriptions
+  broadcast('refreshProgress', { phase: 'subscriptions', message: 'Loading subscriptions...' });
+  const channels = await fetchAllSubscriptions(youtube);
+  log('Refresh: subscriptions loaded', { count: channels.length });
+
+  // Phase 2: Incremental refresh (10 concurrent)
+  broadcast('refreshProgress', { phase: 'videos', processed: 0, total: channels.length });
+  let processed = 0;
+  let totalNew = 0;
+
+  for (let i = 0; i < channels.length; i += 10) {
+    if (!canSpendQuota(1)) {
+      broadcast('refreshProgress', { phase: 'quota_limit', message: 'Quota budget reached, saving progress' });
+      break;
+    }
+
+    const batch = channels.slice(i, i + 10);
+    await Promise.all(
+      batch.map(async (ch) => {
+        try {
+          // Upsert channel FIRST so FOREIGN KEY is satisfied when inserting videos
+          sql.upsertChannel.run({
+            channel_id: ch.channelId,
+            channel_name: ch.title,
+            uploads_playlist_id: getUploadsPlaylistId(ch.channelId),
+            last_checked: Date.now(),
+            backfill_complete: 0,
+            next_page_token: null,
+            total_results: 0,
+          });
+          const result = await fetchChannelVideos(youtube, ch);
+          if (result.newVideos.length > 0) {
+            await enrichVideos(youtube, result.newVideos);
+            totalNew += insertVideos(result.newVideos);
+          }
+          sql.upsertChannel.run({
+            channel_id: ch.channelId,
+            channel_name: ch.title,
+            uploads_playlist_id: getUploadsPlaylistId(ch.channelId),
+            last_checked: Date.now(),
+            backfill_complete: result.backfillComplete ? 1 : 0,
+            next_page_token: result.nextPageToken || null,
+            total_results: result.totalResults,
+          });
+        } catch (err) {
+          log('Channel fetch error', { channel: ch.title, error: err.message });
+        }
+      })
+    );
+
+    processed += batch.length;
+    broadcast('refreshProgress', {
+      phase: 'videos',
+      processed: Math.min(processed, channels.length),
+      total: channels.length,
+      newVideos: totalNew,
+      quotaUsed: quotaUsedToday,
+    });
+  }
+
+  // Phase 3: Backfill (if quota allows)
+  if (canSpendQuota(1)) {
+    let totalBackfilled = 0;
+    for (const ch of channels) {
+      if (!canSpendQuota(1)) break;
+      totalBackfilled += await backfillChannel(youtube, ch);
+    }
+    if (totalBackfilled > 0) {
+      log('Backfill complete', { totalBackfilled });
+    }
+  }
+
+  const totalVideos = sql.totalVideos.get().count;
+  broadcast('refreshComplete', {
+    totalVideos,
+    newVideos: totalNew,
+    quotaUsed: quotaUsedToday,
+  });
+  log('Refresh complete', { totalVideos, newVideos: totalNew, quotaUsed: quotaUsedToday });
+}
+
+// ---------------------------------------------------------------------------
+// Subscriptions endpoint (still available for direct use)
 // ---------------------------------------------------------------------------
 app.get('/api/subscriptions', async (req, res) => {
   if (!req.session) return res.status(401).json({ error: 'Not authenticated' });
-
   try {
-    log('Fetching subscriptions');
     const youtube = getYoutube(req.session);
-    let allSubs = [];
-    let pageToken = undefined;
-    let pageCount = 0;
-
-    do {
-      const resp = await youtube.subscriptions.list({
-        part: 'snippet',
-        mine: true,
-        maxResults: 50,
-        pageToken,
-        order: 'alphabetical',
-      });
-      allSubs.push(
-        ...resp.data.items.map((item) => ({
-          channelId: item.snippet.resourceId.channelId,
-          title: item.snippet.title,
-          thumbnail: item.snippet.thumbnails?.default?.url || '',
-        }))
-      );
-      pageToken = resp.data.nextPageToken;
-      pageCount++;
-    } while (pageToken);
-
-    const quotaUsed = pageCount * 3; // ~3 units per page
-    trackQuota('subscriptions.list', quotaUsed);
-    log('Subscriptions fetched', { channels: allSubs.length, pages: pageCount });
-
-    res.json({ channels: allSubs, count: allSubs.length });
+    const channels = await fetchAllSubscriptions(youtube);
+    res.json({ channels, count: channels.length });
   } catch (err) {
     log('Subscriptions error', { error: err.message });
-    console.error('Subscriptions error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
 // ---------------------------------------------------------------------------
-// API: Fetch videos via RSS for a batch of channel IDs
-// Accepts POST { channelIds: string[] }
-// Returns recent videos for each channel (RSS gives ~15 most recent)
+// Playlist management
 // ---------------------------------------------------------------------------
-app.post('/api/videos', async (req, res) => {
-  const { channelIds } = req.body;
-  if (!Array.isArray(channelIds) || channelIds.length === 0) {
-    return res.status(400).json({ error: 'channelIds required' });
-  }
-
-  const parser = new xml2js.Parser();
-  const results = [];
-
-  // Fetch RSS feeds in parallel (batch of 10 at a time to be polite)
-  const batchSize = 10;
-  for (let i = 0; i < channelIds.length; i += batchSize) {
-    const batch = channelIds.slice(i, i + batchSize);
-    const promises = batch.map(async (channelId) => {
-      try {
-        const url = `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`;
-        const resp = await fetch(url, { timeout: 8000 });
-        if (!resp.ok) return [];
-        const xml = await resp.text();
-        const parsed = await parser.parseStringPromise(xml);
-        const entries = parsed?.feed?.entry || [];
-        return entries.map((entry) => ({
-          videoId: entry['yt:videoId']?.[0] || '',
-          channelId: entry['yt:channelId']?.[0] || channelId,
-          channelName: parsed.feed?.title?.[0] || '',
-          title: entry.title?.[0] || '',
-          published: entry.published?.[0] || '',
-          updated: entry.updated?.[0] || '',
-          thumbnail: entry['media:group']?.[0]?.['media:thumbnail']?.[0]?.$?.url || '',
-          description: entry['media:group']?.[0]?.['media:description']?.[0] || '',
-          views: entry['media:group']?.[0]?.['media:community']?.[0]?.['media:statistics']?.[0]?.$?.views || '0',
-        }));
-      } catch {
-        return [];
-      }
-    });
-    const batchResults = await Promise.all(promises);
-    batchResults.forEach((vids) => results.push(...vids));
-  }
-
-  // Sort by published date descending
-  results.sort((a, b) => new Date(b.published) - new Date(a.published));
-
-  res.json({ videos: results, count: results.length });
-});
-
-// ---------------------------------------------------------------------------
-// API: Playlist management
-// ---------------------------------------------------------------------------
-
-// Get or create the "To Watch" playlist
 app.post('/api/playlist/ensure', async (req, res) => {
   if (!req.session) return res.status(401).json({ error: 'Not authenticated' });
 
@@ -341,7 +561,6 @@ app.post('/api/playlist/ensure', async (req, res) => {
     log('Checking for To Watch playlist');
     const youtube = getYoutube(req.session);
 
-    // Check if playlist already exists
     const existing = await youtube.playlists.list({
       part: 'snippet',
       mine: true,
@@ -349,12 +568,9 @@ app.post('/api/playlist/ensure', async (req, res) => {
     });
     trackQuota('playlists.list', 1);
 
-    let playlist = existing.data.items.find(
-      (p) => p.snippet.title === 'To Watch'
-    );
+    let playlist = existing.data.items.find((p) => p.snippet.title === 'To Watch');
 
     if (!playlist) {
-      // Create it
       log('Creating To Watch playlist');
       const created = await youtube.playlists.insert({
         part: 'snippet,status',
@@ -373,7 +589,6 @@ app.post('/api/playlist/ensure', async (req, res) => {
       log('Playlist already exists', { id: playlist.id });
     }
 
-    // Save playlist ID in session settings
     if (!req.session.settings) {
       req.session.settings = { videosPerRow: 1, thumbSize: 168, density: 'normal' };
     }
@@ -386,12 +601,10 @@ app.post('/api/playlist/ensure', async (req, res) => {
     });
   } catch (err) {
     log('Playlist ensure error', { error: err.message });
-    console.error('Playlist ensure error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Add a video to the "To Watch" playlist (at position 0 = top)
 app.post('/api/playlist/add', async (req, res) => {
   if (!req.session) return res.status(401).json({ error: 'Not authenticated' });
 
@@ -409,25 +622,20 @@ app.post('/api/playlist/add', async (req, res) => {
         snippet: {
           playlistId,
           position: 0,
-          resourceId: {
-            kind: 'youtube#video',
-            videoId,
-          },
+          resourceId: { kind: 'youtube#video', videoId },
         },
       },
     });
     trackQuota('playlistItems.insert', 50);
     log('Video added successfully', { videoId });
-    broadcastPlaylistUpdate('videoAdded', { videoId, playlistId });
+    broadcast('videoAdded', { videoId, playlistId });
     res.json({ success: true });
   } catch (err) {
     log('Playlist add error', { videoId, error: err.message });
-    console.error('Playlist add error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Remove a video from the "To Watch" playlist
 app.post('/api/playlist/remove', async (req, res) => {
   if (!req.session) return res.status(401).json({ error: 'Not authenticated' });
 
@@ -440,7 +648,6 @@ app.post('/api/playlist/remove', async (req, res) => {
     log('Removing video from playlist', { videoId });
     const youtube = getYoutube(req.session);
 
-    // Find the playlist item ID for this video
     let pageToken;
     let itemId = null;
     let pageCount = 0;
@@ -452,13 +659,8 @@ app.post('/api/playlist/remove', async (req, res) => {
         pageToken,
       });
       pageCount++;
-      const found = resp.data.items.find(
-        (item) => item.snippet.resourceId.videoId === videoId
-      );
-      if (found) {
-        itemId = found.id;
-        break;
-      }
+      const found = resp.data.items.find((item) => item.snippet.resourceId.videoId === videoId);
+      if (found) { itemId = found.id; break; }
       pageToken = resp.data.nextPageToken;
     } while (pageToken);
 
@@ -468,24 +670,19 @@ app.post('/api/playlist/remove', async (req, res) => {
       await youtube.playlistItems.delete({ id: itemId });
       trackQuota('playlistItems.delete', 50);
       log('Video removed successfully', { videoId });
-      broadcastPlaylistUpdate('videoRemoved', { videoId, playlistId });
-    } else {
-      log('Video not found in playlist', { videoId });
+      broadcast('videoRemoved', { videoId, playlistId });
     }
 
     res.json({ success: true });
   } catch (err) {
     log('Playlist remove error', { videoId, error: err.message });
-    console.error('Playlist remove error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Fetch all items in a playlist
 app.get('/api/playlist/items', async (req, res) => {
   if (!req.session) return res.status(401).json({ error: 'Not authenticated' });
 
-  // Get playlistId from query param or session settings
   let playlistId = req.query.playlistId || req.session.settings?.playlistId;
   if (!playlistId) {
     return res.status(400).json({ error: 'playlistId required' });
@@ -508,41 +705,36 @@ app.get('/api/playlist/items', async (req, res) => {
       });
       pageCount++;
 
-      allItems.push(...resp.data.items.map((item) => ({
-        id: item.id,
-        videoId: item.contentDetails.videoId,
-        title: item.snippet.title,
-        channelName: item.snippet.videoOwnerChannelTitle || item.snippet.channelTitle,
-        channelId: item.snippet.videoOwnerChannelId || item.snippet.channelId,
-        thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || '',
-        published: item.contentDetails.videoPublishedAt || item.snippet.publishedAt,
-        position: item.snippet.position,
-      })));
+      allItems.push(
+        ...resp.data.items.map((item) => ({
+          id: item.id,
+          videoId: item.contentDetails.videoId,
+          title: item.snippet.title,
+          channelName: item.snippet.videoOwnerChannelTitle || item.snippet.channelTitle,
+          channelId: item.snippet.videoOwnerChannelId || item.snippet.channelId,
+          thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || '',
+          published: item.contentDetails.videoPublishedAt || item.snippet.publishedAt,
+          position: item.snippet.position,
+        }))
+      );
 
       pageToken = resp.data.nextPageToken;
     } while (pageToken);
 
     trackQuota('playlistItems.list', pageCount * 3);
 
-    // Fetch video details for correct channel names and durations (batches of 50)
-    // Always fetch to ensure we have the actual video channel, not playlist owner
+    // Fetch video details for correct channel names and durations
     if (allItems.length > 0) {
-      log('Fetching video details for channel names and durations', { count: allItems.length });
-
       for (let i = 0; i < allItems.length; i += 50) {
         const batch = allItems.slice(i, i + 50);
-        const videoIds = batch.map(item => item.videoId).join(',');
-
         const videoResp = await youtube.videos.list({
           part: 'snippet,contentDetails',
-          id: videoIds,
+          id: batch.map((item) => item.videoId).join(','),
         });
-
         trackQuota('videos.list', 1);
 
-        // Update channel info and duration for these items
-        videoResp.data.items.forEach(video => {
-          const item = allItems.find(i => i.videoId === video.id);
+        videoResp.data.items.forEach((video) => {
+          const item = allItems.find((i) => i.videoId === video.id);
           if (item) {
             item.channelName = video.snippet.channelTitle;
             item.channelId = video.snippet.channelId;
@@ -552,31 +744,28 @@ app.get('/api/playlist/items', async (req, res) => {
       }
     }
 
-    log('Playlist items fetched', { count: allItems.length, pages: pageCount });
-
     res.json({ items: allItems, count: allItems.length });
   } catch (err) {
     log('Playlist items fetch error', { error: err.message });
-    console.error('Playlist items fetch error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
 // ---------------------------------------------------------------------------
-// Serve playlist page
+// Serve pages
 // ---------------------------------------------------------------------------
 app.get('/playlist', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'playlist.html'));
 });
 
-// ---------------------------------------------------------------------------
-// Catch-all: serve the SPA
-// ---------------------------------------------------------------------------
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 server.listen(PORT, () => {
-  console.log(`\n  🎬 YouTube Subs Viewer running at http://localhost:${PORT}\n`);
-  console.log(`  📡 WebSocket server ready for real-time playlist updates\n`);
+  const videoCount = sql.totalVideos.get().count;
+  const channelCount = sql.getAllChannels.all().length;
+  console.log(`\n  YouTube Subs Viewer running at http://localhost:${PORT}`);
+  console.log(`  SQLite: ${videoCount} videos across ${channelCount} channels`);
+  console.log(`  WebSocket server ready\n`);
 });

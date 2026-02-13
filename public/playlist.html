@@ -164,6 +164,7 @@
       gap: 8px;
       font-size: 0.9rem;
       color: var(--text-secondary);
+      padding-bottom: 16px;
     }
 
     .player-channel {
@@ -201,10 +202,13 @@
       border-left: 1px solid var(--border);
       display: flex;
       flex-direction: column;
-      overflow: hidden;
     }
 
     .playlist-header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: var(--bg-surface);
       padding: 16px 20px;
       border-bottom: 1px solid var(--border);
     }
@@ -449,7 +453,7 @@
       <div class="player-info" id="playerInfo" style="display:none;">
         <div class="player-title" id="playerTitle"></div>
         <div class="player-meta">
-          <span class="player-channel" id="playerChannel"></span>
+          <span class="player-channel" id="playerChannel" style="cursor: pointer;"></span>
         </div>
       </div>
     </div>
@@ -459,6 +463,13 @@
       <div class="playlist-header">
         <h2>Playlist</h2>
         <div class="playlist-stats" id="playlistStats">Loading...</div>
+        <div style="padding-top: 12px;">
+          <input type="text" id="playlistSearch" placeholder="Search playlist…"
+                 style="width:100%; padding:8px 12px; background:var(--bg-elevated);
+                        border:1px solid var(--border); border-radius:6px;
+                        color:var(--text-primary); font-size:0.85rem; outline:none;
+                        transition: border-color 0.15s;">
+        </div>
       </div>
       <div class="playlist-list" id="playlistList">
         <div style="padding: 40px 20px; text-align: center;">
@@ -484,6 +495,7 @@
     let ws = null;
     let markedForRemoval = null; // Track video marked for removal at 90%
     let checkProgressInterval = null;
+    let playlistSearchQuery = '';
 
     // -----------------------------------------------------------------------
     // Init
@@ -545,6 +557,21 @@
 
       // Load playlist items
       await loadPlaylist();
+
+      // Search input handler
+      const playlistSearchInput = document.getElementById('playlistSearch');
+      if (playlistSearchInput) {
+        playlistSearchInput.addEventListener('input', (e) => {
+          playlistSearchQuery = e.target.value.toLowerCase();
+          renderPlaylist();
+        });
+        playlistSearchInput.addEventListener('focus', (e) => {
+          e.target.style.borderColor = 'var(--border-light)';
+        });
+        playlistSearchInput.addEventListener('blur', (e) => {
+          e.target.style.borderColor = 'var(--border)';
+        });
+      }
 
       // Remove marked videos when closing the page
       window.addEventListener('beforeunload', () => {
@@ -680,7 +707,18 @@
       document.getElementById('emptyPlayer').style.display = 'none';
       document.getElementById('playerInfo').style.display = 'block';
       document.getElementById('playerTitle').textContent = video.title;
-      document.getElementById('playerChannel').textContent = video.channelName;
+
+      const playerChannelEl = document.getElementById('playerChannel');
+      playerChannelEl.textContent = video.channelName;
+      playerChannelEl.onclick = () => {
+        window.open(`https://www.youtube.com/channel/${video.channelId}`, '_blank');
+      };
+      playerChannelEl.onmouseenter = (e) => {
+        e.target.style.textDecoration = 'underline';
+      };
+      playerChannelEl.onmouseleave = (e) => {
+        e.target.style.textDecoration = 'none';
+      };
 
       // Update playlist item active state
       document.querySelectorAll('.playlist-item').forEach((el, i) => {
@@ -794,21 +832,45 @@
     function renderPlaylist() {
       const container = document.getElementById('playlistList');
 
-      if (playlistItems.length === 0) {
-        container.innerHTML = `
-          <div class="empty-state">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
-            </svg>
-            <h3>No videos in playlist</h3>
-            <p>Add videos from the main feed to start watching</p>
-          </div>
-        `;
+      // Filter by search query
+      let filteredItems = playlistItems;
+      if (playlistSearchQuery) {
+        filteredItems = playlistItems.filter(video =>
+          video.title.toLowerCase().includes(playlistSearchQuery) ||
+          video.channelName.toLowerCase().includes(playlistSearchQuery)
+        );
+      }
+
+      if (filteredItems.length === 0) {
+        if (playlistSearchQuery) {
+          container.innerHTML = `
+            <div class="empty-state">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"/>
+                <path d="m21 21-4.35-4.35"/>
+              </svg>
+              <h3>No videos found</h3>
+              <p>Try adjusting your search</p>
+            </div>
+          `;
+        } else {
+          container.innerHTML = `
+            <div class="empty-state">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
+              </svg>
+              <h3>No videos in playlist</h3>
+              <p>Add videos from the main feed to start watching</p>
+            </div>
+          `;
+        }
         return;
       }
 
       container.innerHTML = '';
-      playlistItems.forEach((video, index) => {
+      filteredItems.forEach((video, originalIndex) => {
+        // Find the original index in playlistItems for proper click handling
+        const index = playlistItems.indexOf(video);
         const item = document.createElement('div');
         item.className = 'playlist-item';
         if (index === currentVideoIndex) item.classList.add('active');
@@ -819,7 +881,7 @@
           </div>
           <div class="playlist-info">
             <div class="playlist-item-title">${escapeHtml(video.title)}</div>
-            <div class="playlist-item-channel">${escapeHtml(video.channelName)}</div>
+            <div class="playlist-item-channel" data-channel-id="${video.channelId}" style="cursor: pointer; transition: color 0.15s;">${escapeHtml(video.channelName)}</div>
           </div>
           <button class="remove-btn" title="Remove from playlist">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -834,6 +896,19 @@
           if (!e.target.closest('.remove-btn')) {
             playVideo(index);
           }
+        });
+
+        // Make channel name clickable
+        const channelEl = item.querySelector('.playlist-item-channel');
+        channelEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          window.open(`https://www.youtube.com/channel/${video.channelId}`, '_blank');
+        });
+        channelEl.addEventListener('mouseenter', (e) => {
+          e.target.style.color = 'var(--text-primary)';
+        });
+        channelEl.addEventListener('mouseleave', (e) => {
+          e.target.style.color = 'var(--text-secondary)';
         });
 
         // Remove button

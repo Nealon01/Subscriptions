@@ -123,6 +123,9 @@
 
     /* ---- Filter Bar ---- */
     .filter-bar {
+      position: sticky;
+      top: 56px; /* Below the topbar */
+      z-index: 96; /* Above settings-panel (95) so search stays visible */
       display: flex;
       align-items: center;
       gap: 10px;
@@ -172,6 +175,9 @@
 
     /* ---- Settings Panel ---- */
     .settings-panel {
+      position: sticky;
+      top: 56px;
+      z-index: 95;
       background: var(--bg-surface);
       border-bottom: 1px solid var(--border);
       max-height: 0;
@@ -180,7 +186,8 @@
     }
 
     .settings-panel.open {
-      max-height: 300px;
+      max-height: 400px;
+      overflow-y: auto;
     }
 
     .settings-content {
@@ -328,6 +335,51 @@
       transition: background 0.15s;
       cursor: pointer;
       position: relative;
+    }
+
+    /* Density variations */
+    .video-grid.compact .video-card {
+      gap: 8px;
+      padding: 8px 24px;
+    }
+
+    .video-grid.compact .video-info {
+      gap: 4px;
+    }
+
+    .video-grid.compact .video-title {
+      font-size: 0.85rem;
+      line-height: 1.3;
+    }
+
+    .video-grid.compact .video-meta {
+      font-size: 0.7rem;
+    }
+
+    .video-grid.compact .video-channel {
+      font-size: 0.7rem;
+    }
+
+    .video-grid.comfortable .video-card {
+      gap: 20px;
+      padding: 20px 24px;
+    }
+
+    .video-grid.comfortable .video-info {
+      gap: 12px;
+    }
+
+    .video-grid.comfortable .video-title {
+      font-size: 1.1rem;
+      line-height: 1.5;
+    }
+
+    .video-grid.comfortable .video-meta {
+      font-size: 0.85rem;
+    }
+
+    .video-grid.comfortable .video-channel {
+      font-size: 0.85rem;
     }
     .video-card:hover { background: var(--bg-card); }
     .video-card.queued { background: rgba(45, 204, 112, 0.04); }
@@ -715,6 +767,22 @@
         </div>
       </div>
       <div class="setting-group">
+        <div class="setting-label">Video Duration</div>
+        <div class="setting-control" style="flex-direction: column; gap: 8px;">
+          <div style="display: flex; gap: 12px; width: 100%; align-items: center;">
+            <span style="font-size:0.75rem;color:var(--text-tertiary);min-width:40px;" id="minDurationLabel">0m</span>
+            <input type="range" id="minDurationSlider" min="0" max="120" value="0" step="1" style="flex:1;">
+          </div>
+          <div style="display: flex; gap: 12px; width: 100%; align-items: center;">
+            <span style="font-size:0.75rem;color:var(--text-tertiary);min-width:40px;" id="maxDurationLabel">∞</span>
+            <input type="range" id="maxDurationSlider" min="0" max="120" value="120" step="1" style="flex:1;">
+          </div>
+        </div>
+        <div style="font-size:0.7rem;color:var(--text-tertiary);text-align:center;">
+          <span id="durationRangeDisplay">All durations</span>
+        </div>
+      </div>
+      <div class="setting-group">
         <div class="setting-label">Cache Status</div>
         <div style="font-size:0.78rem;color:var(--text-tertiary);font-family:var(--font-mono);" id="cacheStatus">No cache</div>
       </div>
@@ -776,17 +844,22 @@
     let displayCount = 30; // videos shown at once
     let isLoadingMore = false;
     let ws = null;
+    let cacheTimestamp = null;
+    let cacheTimerInterval = null;
+    let refreshIsBackground = false;
+
+    // Duration filter state
+    let durationFilter = { min: 0, max: Infinity };
 
     // Settings
     let settings = {
       thumbSize: 168, // width in pixels
       density: 'normal',
-      videosPerRow: 1
+      videosPerRow: 1,
+      durationFilter: { min: 0, max: Infinity }
     };
 
-    // Cache (now server-side)
-    const CACHE_DURATION = 2 * 60 * 60 * 1000; // 2 hours
-    const CACHE_FRESH_THRESHOLD = 10 * 60 * 1000; // 10 minutes - don't refresh if cache is this fresh
+    const CACHE_FRESH_THRESHOLD = 10 * 60 * 1000; // 10 minutes - don't refresh if data is this fresh
 
     // -----------------------------------------------------------------------
     // DOM refs
@@ -818,7 +891,7 @@
       // Wire up buttons
       $('#loginBtn').onclick = doLogin;
       $('#authBtn').onclick = () => sessionId ? doLogout() : doLogin();
-      $('#refreshBtn').onclick = () => loadFeed(true);
+      $('#refreshBtn').onclick = () => triggerRefresh(false);
       $('#settingsBtn').onclick = toggleSettings;
 
       // Settings controls
@@ -844,6 +917,58 @@
       };
       videosPerRowSlider.onchange = () => {
         saveSettings();
+      };
+
+      // Duration filter sliders
+      const minDurationSlider = $('#minDurationSlider');
+      const maxDurationSlider = $('#maxDurationSlider');
+      const minDurationLabel = $('#minDurationLabel');
+      const maxDurationLabel = $('#maxDurationLabel');
+      const durationRangeDisplay = $('#durationRangeDisplay');
+
+      function updateDurationLabels() {
+        const min = parseInt(minDurationSlider.value);
+        const max = parseInt(maxDurationSlider.value);
+
+        minDurationLabel.textContent = `${min}m`;
+        maxDurationLabel.textContent = max >= 120 ? '∞' : `${max}m`;
+
+        if (min === 0 && max >= 120) {
+          durationRangeDisplay.textContent = 'All durations';
+        } else if (min === 0) {
+          durationRangeDisplay.textContent = `Up to ${max} minutes`;
+        } else if (max >= 120) {
+          durationRangeDisplay.textContent = `${min}+ minutes`;
+        } else {
+          durationRangeDisplay.textContent = `${min} - ${max} minutes`;
+        }
+
+        durationFilter.min = min;
+        durationFilter.max = max >= 120 ? Infinity : max;
+        settings.durationFilter = { ...durationFilter };
+      }
+
+      minDurationSlider.oninput = updateDurationLabels;
+      maxDurationSlider.oninput = updateDurationLabels;
+
+      minDurationSlider.onchange = () => {
+        // Ensure min doesn't exceed max
+        if (parseInt(minDurationSlider.value) > parseInt(maxDurationSlider.value)) {
+          maxDurationSlider.value = minDurationSlider.value;
+        }
+        updateDurationLabels();
+        saveSettings();
+        renderFeed();
+      };
+
+      maxDurationSlider.onchange = () => {
+        // Ensure max doesn't go below min
+        if (parseInt(maxDurationSlider.value) < parseInt(minDurationSlider.value)) {
+          minDurationSlider.value = maxDurationSlider.value;
+        }
+        updateDurationLabels();
+        saveSettings();
+        renderFeed();
       };
 
       $$('.setting-btn[data-density]').forEach(btn => {
@@ -932,27 +1057,68 @@
     }
 
     function handleWebSocketMessage(message) {
-      console.log('📡 WebSocket message received (main feed):', message);
+      console.log('WebSocket message:', message.type);
 
       if (message.type === 'videoAdded' && message.data.playlistId === playlistId) {
-        console.log('📡 Video added - updating local queue state');
         queuedVideoIds.add(message.data.videoId);
         updateQueueCount();
-        // Update UI for this specific video
         const card = document.querySelector(`[data-video-id="${message.data.videoId}"]`);
-        if (card) {
-          card.classList.add('queued');
-        }
+        if (card) card.classList.add('queued');
       } else if (message.type === 'videoRemoved' && message.data.playlistId === playlistId) {
-        console.log('📡 Video removed - updating local queue state');
         queuedVideoIds.delete(message.data.videoId);
         updateQueueCount();
-        // Update UI for this specific video
         const card = document.querySelector(`[data-video-id="${message.data.videoId}"]`);
-        if (card) {
-          card.classList.remove('queued');
+        if (card) card.classList.remove('queued');
+      } else if (message.type === 'refreshProgress') {
+        const d = message.data;
+        if (d.phase === 'subscriptions') {
+          setProgress(5, 'Loading subscriptions...', '');
+        } else if (d.phase === 'videos') {
+          const pct = 10 + Math.round((d.processed / d.total) * 85);
+          setProgress(Math.min(pct, 95), 'Fetching videos...', `${d.processed} / ${d.total} channels`);
+        } else if (d.phase === 'quota_limit') {
+          setProgress(95, 'Quota limit reached', 'Saving progress...');
+        }
+      } else if (message.type === 'refreshComplete') {
+        handleRefreshComplete(message.data);
+      } else if (message.type === 'refreshError') {
+        showToast('Refresh error: ' + message.data.error, 'error');
+        if (!refreshIsBackground) {
+          $('#loadingScreen').style.display = 'none';
+          showFeedUI();
         }
       }
+    }
+
+    async function handleRefreshComplete(data) {
+      setProgress(100, 'Done!', '');
+
+      const feed = await loadFeedFromServer();
+      if (feed) {
+        channels = feed.channels;
+        allVideos = feed.videos;
+        startCacheTimer(feed.timestamp);
+      }
+
+      await ensurePlaylist();
+      await loadExistingPlaylistItems();
+
+      if (!refreshIsBackground) {
+        await new Promise((r) => setTimeout(r, 300));
+        showFeedUI();
+      } else {
+        displayCount = 30;
+        renderFeed();
+        updateStats();
+      }
+
+      if (data.newVideos > 0) {
+        showToast(`Found ${data.newVideos} new video${data.newVideos > 1 ? 's' : ''}!`, 'success');
+      } else {
+        showToast('Feed is up to date', 'success');
+      }
+
+      updateQuotaStatus();
     }
 
     // -----------------------------------------------------------------------
@@ -1051,96 +1217,60 @@
         });
       }
 
-      // Density
-      const densities = {
-        compact: '8px',
-        normal: '12px',
-        comfortable: '16px'
-      };
-      root.style.setProperty('--list-item-padding', densities[settings.density]);
+      // Density - apply class to video-grid containers
+      $$('.video-grid').forEach(grid => {
+        grid.classList.remove('compact', 'comfortable');
+        if (settings.density === 'compact') {
+          grid.classList.add('compact');
+        } else if (settings.density === 'comfortable') {
+          grid.classList.add('comfortable');
+        }
+      });
     }
 
     // -----------------------------------------------------------------------
-    // Cache (server-side, no more localStorage limits!)
+    // Feed loading (from SQLite via server)
     // -----------------------------------------------------------------------
-    async function saveCache(data) {
+    async function loadFeedFromServer() {
       try {
-        console.log('saveCache called with:', {
-          channels: data.channels?.length,
-          videos: data.videos?.length,
-          playlistId: data.playlistId
-        });
-        const resp = await fetch('/api/cache', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            channels: data.channels,
-            videos: data.videos,
-            playlistId: data.playlistId,
-            playlistUrl: data.playlistUrl
-          })
-        });
-
-        console.log('Cache save response status:', resp.status);
-        if (resp.ok) {
-          console.log('✅ Cache saved to server successfully');
-          updateCacheStatus();
-        } else {
-          const errorText = await resp.text();
-          console.warn('Failed to save cache to server:', resp.status, errorText);
-        }
+        const resp = await fetch('/api/feed');
+        if (!resp.ok) return null;
+        const data = await resp.json();
+        if (!data.videos || data.videos.length === 0) return null;
+        return data;
       } catch (err) {
-        console.error('❌ Error saving cache:', err);
-      }
-    }
-
-    async function loadCache() {
-      try {
-        const resp = await fetch('/api/cache');
-        if (!resp.ok) {
-          if (resp.status === 404) {
-            console.log('No cache found on server');
-          }
-          return null;
-        }
-
-        const cache = await resp.json();
-        const age = Date.now() - cache.timestamp;
-
-        if (age > CACHE_DURATION) {
-          console.log('Cache expired');
-          return null;
-        }
-
-        console.log(`Loaded cache from server (${Math.floor(age / 60000)}m old)`);
-        return cache;
-      } catch (err) {
-        console.warn('Failed to load cache:', err);
+        console.warn('Failed to load feed:', err);
         return null;
       }
     }
 
-    async function updateCacheStatus() {
+    async function ensurePlaylist() {
+      if (playlistId) return;
       try {
-        const resp = await fetch('/api/cache');
-        if (!resp.ok) {
-          $('#cacheStatus').textContent = 'No cache';
-          return;
-        }
-
-        const cache = await resp.json();
-        const age = Date.now() - cache.timestamp;
-        const minutes = Math.floor(age / 60000);
-        const hours = Math.floor(minutes / 60);
-
-        if (hours > 0) {
-          $('#cacheStatus').textContent = `Cached ${hours}h ${minutes % 60}m ago`;
-        } else {
-          $('#cacheStatus').textContent = `Cached ${minutes}m ago`;
+        const resp = await fetch('/api/playlist/ensure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          playlistId = data.playlistId;
+          playlistUrl = data.url;
+          $('#playlistBtn').style.display = 'inline-flex';
+          $('#playlistBtn').onclick = () => window.open('/playlist', '_blank');
         }
       } catch (err) {
-        $('#cacheStatus').textContent = 'No cache';
+        console.warn('Failed to ensure playlist:', err);
       }
+    }
+
+    function showFeedUI() {
+      displayCount = 30;
+      renderFeed();
+      $('#loadingScreen').style.display = 'none';
+      $('#feedContainer').style.display = 'block';
+      $('#filterBar').style.display = 'flex';
+      $('#refreshBtn').style.display = 'inline-flex';
+      updateStats();
     }
 
     async function updateQuotaStatus() {
@@ -1150,15 +1280,29 @@
           const data = await resp.json();
           const el = $('#quotaStatus');
           el.textContent = `${data.used} / ${data.total} used (${data.remaining} left)`;
-          if (data.warning) {
-            el.style.color = 'var(--accent)';
-          } else {
-            el.style.color = 'var(--text-tertiary)';
-          }
+          el.style.color = data.warning ? 'var(--accent)' : 'var(--text-tertiary)';
         }
       } catch (err) {
         console.error('Failed to fetch quota:', err);
       }
+    }
+
+    function startCacheTimer(timestamp) {
+      cacheTimestamp = timestamp;
+      if (cacheTimerInterval) clearInterval(cacheTimerInterval);
+      updateLiveCacheStatus();
+      cacheTimerInterval = setInterval(updateLiveCacheStatus, 60000);
+    }
+
+    function updateLiveCacheStatus() {
+      if (!cacheTimestamp) return;
+      const age = Date.now() - cacheTimestamp;
+      const minutes = Math.floor(age / 60000);
+      const hours = Math.floor(minutes / 60);
+      const el = $('#cacheStatus');
+      el.textContent = hours > 0
+        ? `Updated ${hours}h ${minutes % 60}m ago`
+        : `Updated ${minutes}m ago`;
     }
 
     // -----------------------------------------------------------------------
@@ -1183,48 +1327,31 @@
         $('#authBtn').querySelector('span').textContent = 'Sign Out';
         $('#settingsBtn').style.display = 'inline-flex';
 
-        // Load settings from server
         await loadSettings();
 
-        // Try to load from cache first
-        const cache = await loadCache();
-        if (cache) {
-          // Load from cache immediately
-          channels = cache.channels;
-          allVideos = cache.videos;
-          playlistId = cache.playlistId;
-          playlistUrl = cache.playlistUrl;
-
-          if (playlistId) {
-            $('#playlistBtn').style.display = 'inline-flex';
-            $('#playlistBtn').onclick = () => window.open('/playlist', '_blank');
-          }
+        // Try to load existing data from SQLite
+        const feed = await loadFeedFromServer();
+        if (feed) {
+          channels = feed.channels;
+          allVideos = feed.videos;
+          startCacheTimer(feed.timestamp);
 
           $('#loginScreen').style.display = 'none';
-          $('#loadingScreen').style.display = 'none';
-          displayCount = 30;
-          renderFeed();
-          $('#feedContainer').style.display = 'block';
-          $('#filterBar').style.display = 'flex';
-          $('#refreshBtn').style.display = 'inline-flex';
-          updateStats();
-          updateCacheStatus();
+          showFeedUI();
           updateQuotaStatus();
 
-          // Load existing playlist items to show queue indicators
+          await ensurePlaylist();
           loadExistingPlaylistItems();
 
-          // Only refresh in background if cache is older than 10 minutes
-          const cacheAge = Date.now() - cache.timestamp;
-          if (cacheAge > CACHE_FRESH_THRESHOLD) {
-            console.log('Cache is stale, refreshing in background...');
-            setTimeout(() => loadFeed(false, true), 1000);
-          } else {
-            console.log(`Cache is fresh (${Math.floor(cacheAge / 60000)}m old), skipping background refresh`);
+          // Refresh in background if data is stale
+          const dataAge = feed.timestamp ? Date.now() - feed.timestamp : Infinity;
+          if (dataAge > CACHE_FRESH_THRESHOLD) {
+            console.log('Data is stale, refreshing in background...');
+            setTimeout(() => triggerRefresh(true), 1000);
           }
         } else {
-          // No cache, do full load
-          loadFeed(false, false);
+          // No data — trigger full refresh with loading screen
+          triggerRefresh(false);
         }
       } else {
         sessionId = null;
@@ -1233,149 +1360,56 @@
     }
 
     // -----------------------------------------------------------------------
-    // Load Feed
+    // Trigger server-side refresh
     // -----------------------------------------------------------------------
-    async function loadFeed(force = false, background = false) {
-      const oldVideoCount = background ? allVideos.length : 0;
+    async function triggerRefresh(background = false) {
+      refreshIsBackground = background;
 
-      // Show loading (unless background refresh)
       if (!background) {
         $('#loginScreen').style.display = 'none';
         $('#feedContainer').style.display = 'none';
         $('#loadingScreen').style.display = 'flex';
         $('#filterBar').style.display = 'none';
         $('#refreshBtn').style.display = 'none';
-        setProgress(5, 'Loading subscriptions…', 'Fetching your channel list');
+        setProgress(2, 'Starting refresh...', 'Connecting to YouTube API');
       } else {
-        // Background refresh - just show a small indicator
-        showToast('Checking for new videos…', 'info');
+        showToast('Checking for new videos...', 'info');
       }
 
       try {
-        // 1. Fetch subscriptions
-        const subsResp = await fetch('/api/subscriptions', { headers: { 'x-session-id': sessionId } });
-        if (!subsResp.ok) {
-          if (subsResp.status === 401) {
-            throw new Error('401: Not authenticated');
-          }
-          throw new Error(`Failed to load subscriptions (${subsResp.status})`);
-        }
-        const subsData = await subsResp.json();
-        channels = subsData.channels;
-
-        if (!background) setProgress(15, `Found ${channels.length} channels`, 'Fetching videos via RSS…');
-
-        // 2. Fetch videos in batches
-        const batchSize = 20;
-        allVideos = [];
-        for (let i = 0; i < channels.length; i += batchSize) {
-          const batch = channels.slice(i, i + batchSize);
-          const ids = batch.map((c) => c.channelId);
-
-          const vidResp = await fetch('/api/videos', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ channelIds: ids }),
-          });
-          if (vidResp.ok) {
-            const vidData = await vidResp.json();
-            allVideos.push(...vidData.videos);
-          }
-
-          if (!background) {
-            const pct = 15 + Math.round(((i + batchSize) / channels.length) * 80);
-            setProgress(
-              Math.min(pct, 95),
-              `Fetching videos…`,
-              `${Math.min(i + batchSize, channels.length)} / ${channels.length} channels`
-            );
-          }
-        }
-
-        // Sort all videos by published date
-        allVideos.sort((a, b) => new Date(b.published) - new Date(a.published));
-        console.log(`📹 Fetched ${allVideos.length} total videos from ${channels.length} channels`);
-
-        // 3. Ensure the "To Watch" playlist (skip if we already have it and this is a background refresh)
-        if (!playlistId || !background) {
-          if (!background) setProgress(98, 'Setting up playlist…', '');
-
-          const plResp = await fetch('/api/playlist/ensure', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
-          });
-          if (plResp.ok) {
-            const plData = await plResp.json();
-            playlistId = plData.playlistId;
-            playlistUrl = plData.url;
-            $('#playlistBtn').style.display = 'inline-flex';
-            $('#playlistBtn').onclick = () => window.open('/playlist', '_blank');
-            // Load existing playlist items to show queue indicators
-            await loadExistingPlaylistItems();
-          }
-        }
-
-        setProgress(100, 'Done!', '');
-
-        // Save to cache
-        console.log('💾 About to save cache...');
-        await saveCache({
-          channels,
-          videos: allVideos,
-          playlistId,
-          playlistUrl
+        const resp = await fetch('/api/feed/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-session-id': sessionId },
         });
-        console.log('💾 saveCache call completed');
 
-        if (!background) {
-          await new Promise((r) => setTimeout(r, 300));
-
-          // Show feed
-          displayCount = 30;
-          renderFeed();
-          $('#loadingScreen').style.display = 'none';
-          $('#feedContainer').style.display = 'block';
-          $('#filterBar').style.display = 'flex';
-          $('#refreshBtn').style.display = 'inline-flex';
-          updateStats();
-          updateQuotaStatus();
-        } else {
-          // Background refresh - just update the feed
-          displayCount = 30;
-          renderFeed();
-          updateStats();
-          updateCacheStatus();
-          updateQuotaStatus();
-
-          const newVideos = allVideos.length - oldVideoCount;
-          if (newVideos > 0) {
-            showToast(`Found ${newVideos} new video${newVideos > 1 ? 's' : ''}!`, 'success');
-          } else {
-            showToast('Feed is up to date', 'success');
-          }
-        }
-      } catch (err) {
-        console.error(err);
-        // Only show login screen for auth errors (401), not for network/API errors
-        if (err.message.includes('401') || err.message.includes('Not authenticated')) {
-          // Auth error - clear session and show login
+        if (resp.status === 401) {
           sessionId = null;
           localStorage.removeItem('yt_subs_sid');
+          showToast('Session expired. Please sign in again.', 'error');
           if (!background) {
-            showToast('Session expired. Please sign in again.', 'error');
             $('#loadingScreen').style.display = 'none';
             $('#loginScreen').style.display = 'flex';
           }
-        } else {
-          // Non-auth error - keep session, just show error with retry
-          if (!background) {
-            showToast('Error loading feed: ' + err.message + '. Click refresh to retry.', 'error');
-            $('#loadingScreen').style.display = 'none';
-            $('#feedContainer').style.display = 'block';
-            $('#filterBar').style.display = 'flex';
-            $('#refreshBtn').style.display = 'inline-flex';
-          } else {
-            showToast('Error refreshing feed. Click refresh to retry.', 'error');
+          return;
+        }
+
+        const data = await resp.json();
+        if (data.status === 'already_running') {
+          showToast('Refresh already in progress', 'info');
+          return;
+        }
+        // Progress updates arrive via WebSocket → handleRefreshComplete loads the feed
+      } catch (err) {
+        console.error('Refresh trigger error:', err);
+        showToast('Error starting refresh: ' + err.message, 'error');
+        if (!background) {
+          $('#loadingScreen').style.display = 'none';
+          // Show whatever we have
+          const feed = await loadFeedFromServer();
+          if (feed) {
+            channels = feed.channels;
+            allVideos = feed.videos;
+            showFeedUI();
           }
         }
       }
