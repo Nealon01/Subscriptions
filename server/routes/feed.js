@@ -10,6 +10,7 @@ import {
   upsertChannel,
   getChannel,
   getChannelVideoIds,
+  getChannelsNeedingBackfill,
   insertVideos,
   updateVideoMeta,
   setChannelError,
@@ -18,6 +19,7 @@ import {
   fetchAllSubscriptions,
   fetchChannelVideos,
   enrichVideos,
+  backfillChannel,
   getUploadsPlaylistId,
 } from '../services/youtube.js';
 import * as quota from '../services/quota.js';
@@ -144,7 +146,7 @@ router.post('/refresh', requireAuth, async (req, res) => {
         const knownIds = getChannelVideoIds(sub.channelId);
         const isFresh = knownIds.size === 0;
 
-        const newVideos = await fetchChannelVideos(youtube, channel, db, quota, {
+        const { videos: newVideos, nextPageToken } = await fetchChannelVideos(youtube, channel, db, quota, {
           maxPages: isFresh ? 1 : Infinity,
         });
 
@@ -155,13 +157,14 @@ router.post('/refresh', requireAuth, async (req, res) => {
           allNewVideoIds.push(...newVideos.map(v => v.videoId));
         }
 
-        // Mark backfill status for fresh channels
+        // Mark backfill status for fresh channels, save page token for continuation
         if (isFresh) {
           upsertChannel({
             channelId: sub.channelId,
             channelName: sub.title,
             uploadsPlaylistId,
             backfillComplete: newVideos.length < 50 ? 1 : 0,
+            nextPageToken: nextPageToken || null,
           });
         }
       } catch (err) {
@@ -200,16 +203,61 @@ router.post('/refresh', requireAuth, async (req, res) => {
       }
     }
 
+    // Step 4: Backfill channels with incomplete history using remaining quota
+    let backfillVideos = 0;
+    let backfillChannelsProcessed = 0;
+
+    if (quota.canSpend(1)) {
+      const channelsToBackfill = getChannelsNeedingBackfill();
+
+      if (channelsToBackfill.length > 0) {
+        broadcast('refreshProgress', { phase: 'backfill', total: channelsToBackfill.length });
+        console.log(`[feed] Starting backfill for ${channelsToBackfill.length} channels`);
+
+        for (const ch of channelsToBackfill) {
+          if (!quota.canSpend(1)) {
+            console.log(`[feed] Backfill paused — quota budget reached after ${backfillChannelsProcessed} channels`);
+            break;
+          }
+
+          try {
+            const result = await backfillChannel(youtube, ch, db, quota);
+            backfillVideos += result.videosFound;
+            backfillChannelsProcessed++;
+
+            if (backfillChannelsProcessed % 20 === 0) {
+              broadcast('refreshProgress', {
+                phase: 'backfill',
+                processed: backfillChannelsProcessed,
+                total: channelsToBackfill.length,
+              });
+            }
+          } catch (err) {
+            const msg = err.message || '';
+            if (msg.includes('playlistId') && msg.includes('cannot be found')) {
+              console.warn(`[feed] Marking ${ch.channelName} as broken during backfill`);
+              setChannelError(ch.channelId, 'playlist_not_found');
+            } else {
+              console.error(`[feed] Backfill error for ${ch.channelName}:`, msg);
+            }
+          }
+        }
+
+        console.log(`[feed] Backfill complete: ${backfillVideos} videos from ${backfillChannelsProcessed} channels`);
+      }
+    }
+
     const quotaStatus = quota.getStatus();
     broadcast('refreshComplete', {
       timestamp: new Date().toISOString(),
       newVideos: totalNewVideos,
+      backfillVideos,
       channelsProcessed,
       totalChannels: subscriptions.length,
       quotaStatus,
     });
 
-    console.log(`[feed] Refresh complete: ${totalNewVideos} new videos from ${channelsProcessed} channels (${quotaStatus.used}/${quotaStatus.budget} quota)`);
+    console.log(`[feed] Refresh complete: ${totalNewVideos} new + ${backfillVideos} backfill videos from ${channelsProcessed} channels (${quotaStatus.used}/${quotaStatus.budget} quota)`);
   } catch (err) {
     console.error('[feed] Refresh pipeline error:', err);
     broadcast('refreshError', { error: err.message });

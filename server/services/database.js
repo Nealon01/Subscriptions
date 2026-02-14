@@ -242,11 +242,12 @@ export function updateVideoMeta(updates) {
 // ---------------------------------------------------------------------------
 
 /**
- * Get all videos ordered by published date descending.
+ * Get recent videos ordered by published date descending.
  * Returns camelCase field names for frontend compatibility.
+ * @param {number} [limit=2000] - Max rows to return (covers ~2 months of content)
  * @returns {Array<object>}
  */
-export function getAllVideos() {
+export function getAllVideos(limit = 2000) {
   return getDb().prepare(`
     SELECT
       video_id AS videoId,
@@ -255,12 +256,13 @@ export function getAllVideos() {
       channel_name AS channelName,
       published,
       thumbnail,
-      description,
+      SUBSTR(description, 1, 200) AS description,
       duration,
       views
     FROM videos
     ORDER BY published DESC
-  `).all();
+    LIMIT ?
+  `).all(limit);
 }
 
 /**
@@ -280,6 +282,26 @@ export function getAllChannels() {
       next_page_token AS nextPageToken,
       total_results AS totalResults
     FROM channels
+    ORDER BY channel_name COLLATE NOCASE
+  `).all();
+}
+
+/**
+ * Get channels that still need backfill (incomplete history).
+ * Excludes channels with fetch errors.
+ * @returns {Array<{ channelId: string, channelName: string, uploadsPlaylistId: string, nextPageToken: string|null, backfillComplete: number }>}
+ */
+export function getChannelsNeedingBackfill() {
+  return getDb().prepare(`
+    SELECT
+      channel_id AS channelId,
+      channel_name AS channelName,
+      uploads_playlist_id AS uploadsPlaylistId,
+      next_page_token AS nextPageToken,
+      backfill_complete AS backfillComplete
+    FROM channels
+    WHERE backfill_complete = 0
+      AND (fetch_error IS NULL OR fetch_error = '')
     ORDER BY channel_name COLLATE NOCASE
   `).all();
 }

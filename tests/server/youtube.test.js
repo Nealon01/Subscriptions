@@ -135,7 +135,7 @@ describe('youtube service', () => {
       });
 
       const quota = createTestQuota();
-      const result = await fetchChannelVideos(
+      const { videos: result } = await fetchChannelVideos(
         youtube,
         { channelId, channelName, uploadsPlaylistId },
         testDb,
@@ -173,7 +173,7 @@ describe('youtube service', () => {
       // Budget of only 2 — should stop after 2 pages
       const quota = createTestQuota(2);
 
-      const result = await fetchChannelVideos(
+      const { videos: result } = await fetchChannelVideos(
         youtube,
         { channelId, channelName, uploadsPlaylistId },
         testDb,
@@ -206,7 +206,7 @@ describe('youtube service', () => {
       });
 
       const quota = createTestQuota();
-      const result = await fetchChannelVideos(
+      const { videos: result } = await fetchChannelVideos(
         youtube,
         { channelId, channelName, uploadsPlaylistId },
         testDb,
@@ -393,7 +393,7 @@ describe('youtube service', () => {
           uploadsPlaylistId,
         });
 
-        const newVideos = await fetchChannelVideos(
+        const { videos: newVideos } = await fetchChannelVideos(
           youtube,
           {
             channelId: sub.channelId,

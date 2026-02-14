@@ -99,6 +99,7 @@ export async function fetchChannelVideos(youtube, channel, db, quota, options = 
   const knownIds = db.getChannelVideoIds(channel.channelId);
   const newVideos = [];
   let pageToken = undefined;
+  let lastNextPageToken = null;
   let hitKnown = false;
   let pagesProcessed = 0;
 
@@ -117,6 +118,7 @@ export async function fetchChannelVideos(youtube, channel, db, quota, options = 
 
     quota.trackQuota('playlistItems.list', 1);
     pagesProcessed++;
+    lastNextPageToken = response.data.nextPageToken || null;
 
     const items = response.data.items || [];
 
@@ -144,11 +146,11 @@ export async function fetchChannelVideos(youtube, channel, db, quota, options = 
 
     if (hitKnown) break;
     if (pagesProcessed >= maxPages) break;
-    pageToken = response.data.nextPageToken;
+    pageToken = lastNextPageToken;
   } while (pageToken);
 
   console.log(`[youtube] ${channel.channelName}: ${newVideos.length} new videos`);
-  return newVideos;
+  return { videos: newVideos, nextPageToken: lastNextPageToken };
 }
 
 // ---------------------------------------------------------------------------
