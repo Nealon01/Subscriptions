@@ -116,11 +116,20 @@ const { broadcast } = setupWebSocket(server);
 app.locals.broadcast = broadcast;
 
 // ---------------------------------------------------------------------------
-// Start listening
+// Start listening (with retry for --watch restarts where port lingers)
 // ---------------------------------------------------------------------------
+let listenRetries = 0;
+const MAX_RETRIES = 5;
+const RETRY_DELAY_MS = 500;
+
 server.on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`[server] Port ${PORT} is already in use. Kill the old process and retry.`);
+  if (err.code === 'EADDRINUSE' && listenRetries < MAX_RETRIES) {
+    listenRetries++;
+    console.warn(`[server] Port ${PORT} in use, retrying in ${RETRY_DELAY_MS}ms (${listenRetries}/${MAX_RETRIES})...`);
+    setTimeout(() => server.listen(PORT), RETRY_DELAY_MS);
+  } else if (err.code === 'EADDRINUSE') {
+    console.error(`[server] Port ${PORT} still in use after ${MAX_RETRIES} retries. Kill the old process.`);
+    process.exit(1);
   } else {
     console.error(`[server] Server error:`, err.message);
   }

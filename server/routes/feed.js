@@ -8,9 +8,11 @@ import {
   latestCheck,
   totalVideos,
   upsertChannel,
+  getChannel,
   getChannelVideoIds,
   insertVideos,
   updateVideoMeta,
+  setChannelError,
 } from '../services/database.js';
 import {
   fetchAllSubscriptions,
@@ -114,6 +116,14 @@ router.post('/refresh', requireAuth, async (req, res) => {
         break;
       }
 
+      // Skip channels with persistent fetch errors (e.g. deleted playlist)
+      const existingChannel = getChannel(sub.channelId);
+      if (existingChannel?.fetch_error) {
+        console.log(`[feed] Skipping ${sub.title} (previous error: ${existingChannel.fetch_error})`);
+        channelsProcessed++;
+        continue;
+      }
+
       const uploadsPlaylistId = getUploadsPlaylistId(sub.channelId);
       upsertChannel({
         channelId: sub.channelId,
@@ -155,7 +165,14 @@ router.post('/refresh', requireAuth, async (req, res) => {
           });
         }
       } catch (err) {
-        console.error(`[feed] Error fetching videos for ${sub.title}:`, err.message);
+        const msg = err.message || '';
+        // Mark channels with permanent errors so we skip them next time
+        if (msg.includes('playlistId') && msg.includes('cannot be found')) {
+          console.warn(`[feed] Marking ${sub.title} as broken (playlist not found)`);
+          setChannelError(sub.channelId, 'playlist_not_found');
+        } else {
+          console.error(`[feed] Error fetching videos for ${sub.title}:`, msg);
+        }
       }
 
       channelsProcessed++;

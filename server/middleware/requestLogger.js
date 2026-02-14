@@ -13,7 +13,7 @@ export function requestLogger() {
       const tag = status >= 500 ? 'ERROR' : status >= 400 ? 'WARN' : 'INFO';
       const logFn = status >= 500 ? console.error : status >= 400 ? console.warn : console.log;
 
-      logFn(`[http] ${tag} ${req.method} ${req.originalUrl} → ${status} (${duration}ms)`);
+      logFn(`[http] ${tag} ${req.method} ${req.originalUrl} -> ${status} (${duration}ms)`);
     });
 
     next();

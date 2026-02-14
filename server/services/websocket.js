@@ -14,6 +14,12 @@ const clients = new Set();
 export function setupWebSocket(server) {
   wss = new WebSocketServer({ server, path: '/ws' });
 
+  // Handle WSS-level errors (e.g. EADDRINUSE propagated from HTTP server)
+  // Without this, unhandled 'error' events crash the process on --watch restarts
+  wss.on('error', (err) => {
+    console.error('[ws] WebSocketServer error:', err.message);
+  });
+
   wss.on('connection', (ws) => {
     clients.add(ws);
     console.log(`[ws] Client connected (${clients.size} total)`);

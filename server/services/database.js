@@ -77,6 +77,13 @@ export function initDatabase(dbPath = 'cache/videos.db') {
     // Column already exists — ignore
   }
 
+  // Migrate: add fetch_error column to channels (skip broken channels on refresh)
+  try {
+    db.exec('ALTER TABLE channels ADD COLUMN fetch_error TEXT DEFAULT NULL');
+  } catch (e) {
+    // Column already exists — ignore
+  }
+
   return db;
 }
 
@@ -140,6 +147,23 @@ export function upsertChannel(data) {
  */
 export function getChannel(channelId) {
   return getDb().prepare('SELECT * FROM channels WHERE channel_id = ?').get(channelId);
+}
+
+/**
+ * Mark a channel as having a fetch error (skip on future refreshes).
+ * @param {string} channelId
+ * @param {string} error
+ */
+export function setChannelError(channelId, error) {
+  getDb().prepare('UPDATE channels SET fetch_error = ? WHERE channel_id = ?').run(error, channelId);
+}
+
+/**
+ * Clear a channel's fetch error.
+ * @param {string} channelId
+ */
+export function clearChannelError(channelId) {
+  getDb().prepare('UPDATE channels SET fetch_error = NULL WHERE channel_id = ?').run(channelId);
 }
 
 /**
