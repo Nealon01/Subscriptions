@@ -1,0 +1,63 @@
+.filterBar {
+  position: sticky;
+  top: 56px;
+  z-index: 96;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+  flex-wrap: wrap;
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 200px;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.searchInput:focus {
+  border-color: var(--border-light);
+}
+
+.searchInput::placeholder {
+  color: var(--text-tertiary);
+}
+
+.chip {
+  padding: 6px 12px;
+  border-radius: 20px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: var(--font-body);
+}
+
+.chip:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+}
+
+.chipActive {
+  background: var(--accent-muted);
+  border-color: rgba(226, 54, 54, 0.3);
+  color: var(--accent);
+}
+
+@media (max-width: 640px) {
+  .filterBar {
+    padding: 10px 14px;
+  }
+}

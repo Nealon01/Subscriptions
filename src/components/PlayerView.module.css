@@ -1,0 +1,85 @@
+.playerSection {
+  flex: 1;
+  background: var(--bg-deep);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.playerWrapper {
+  flex: 0 0 auto;
+  background: #000;
+  position: relative;
+  width: 100%;
+  padding-top: 56.25%; /* 16:9 */
+}
+
+.player {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.playerInfo {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.playerTitle {
+  font-size: 1.25rem;
+  font-weight: 500;
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+
+.playerMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  padding-bottom: 16px;
+}
+
+.playerChannel {
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.playerChannel:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+
+.emptyPlayer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  color: var(--text-secondary);
+}
+
+.emptyIcon {
+  width: 80px;
+  height: 80px;
+  opacity: 0.3;
+}
+
+.emptyTitle {
+  font-size: 1.1rem;
+  font-weight: 500;
+}
+
+.emptySubtitle {
+  font-size: 0.9rem;
+  opacity: 0.7;
+}

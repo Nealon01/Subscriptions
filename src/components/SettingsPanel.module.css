@@ -1,0 +1,160 @@
+.panel {
+  position: sticky;
+  top: 56px;
+  z-index: 95;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+}
+
+.open {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.content {
+  padding: 20px 24px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 24px;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.label {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.rangeLabel {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  min-width: 45px;
+}
+
+.rangeLabelRight {
+  text-align: right;
+}
+
+.slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--bg-card);
+  border-radius: 4px;
+  height: 6px;
+  outline: none;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.slider::-webkit-slider-thumb:hover {
+  background: var(--accent-hover);
+  transform: scale(1.1);
+}
+
+.slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: none;
+  transition: all 0.15s;
+}
+
+.slider::-moz-range-thumb:hover {
+  background: var(--accent-hover);
+  transform: scale(1.1);
+}
+
+.value {
+  font-size: 0.7rem;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  text-align: center;
+}
+
+.buttons {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.settingBtn {
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.settingBtn:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+}
+
+.settingBtnActive {
+  background: var(--accent-muted);
+  border-color: rgba(226, 54, 54, 0.3);
+  color: var(--accent);
+}
+
+.durationControls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.durationRow {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  align-items: center;
+}
+
+.durationLabel {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  min-width: 40px;
+}
+
+.infoText {
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+@media (max-width: 640px) {
+  .content {
+    grid-template-columns: 1fr;
+    padding: 16px 14px;
+  }
+}

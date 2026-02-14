@@ -1,19 +1,40 @@
 {
   "name": "youtube-subs-viewer",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Personal YouTube subscriptions feed — see everything, sorted by date",
-  "main": "server.js",
+  "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "node --watch server/index.js",
+    "dev:client": "vite",
+    "build": "vite build",
+    "start": "node server/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:server": "vitest run tests/server",
+    "test:client": "vitest run tests/src"
   },
   "dependencies": {
     "better-sqlite3": "^12.6.2",
+    "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "googleapis": "^130.0.0",
-    "node-fetch": "^2.7.0",
-    "ws": "^8.19.0",
-    "xml2js": "^0.6.2"
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@testing-library/user-event": "^14.5.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.0",
+    "jsdom": "^25.0.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.1.1",
+    "supertest": "^7.0.0",
+    "vite": "^6.0.7",
+    "vitest": "^3.0.4"
   }
 }

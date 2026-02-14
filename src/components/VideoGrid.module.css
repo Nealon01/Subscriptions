@@ -1,0 +1,115 @@
+.grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* Compact density — targets direct child divs (VideoCards) */
+.compact > div {
+  gap: 8px;
+  padding: 8px 24px;
+}
+
+/* Comfortable density */
+.comfortable > div {
+  gap: 20px;
+  padding: 20px 24px;
+}
+
+/* Compact density text sizing */
+.compact [class*="info"] {
+  gap: 4px;
+}
+
+.compact [class*="title"] {
+  font-size: 0.85rem;
+  line-height: 1.3;
+}
+
+.compact [class*="meta"],
+.compact [class*="channel"] {
+  font-size: 0.7rem;
+}
+
+/* Comfortable density text sizing */
+.comfortable [class*="info"] {
+  gap: 12px;
+}
+
+.comfortable [class*="title"] {
+  font-size: 1.1rem;
+  line-height: 1.5;
+}
+
+.comfortable [class*="meta"],
+.comfortable [class*="channel"] {
+  font-size: 0.85rem;
+}
+
+/* ---- Grid Layout (2+ videos per row) ---- */
+.gridLayout {
+  display: grid;
+  grid-template-columns: repeat(var(--videos-per-row, 2), 1fr);
+  gap: 16px;
+  padding: 16px 24px;
+}
+
+/* Video cards in grid layout */
+.gridLayout > div {
+  flex-direction: column;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg-elevated);
+  gap: 0;
+}
+
+.gridLayout > div:hover {
+  background: var(--bg-card);
+  border-color: var(--border-light);
+}
+
+/* Grid card thumbnails */
+.gridLayout [class*="thumbWrap"] {
+  width: 100% !important;
+  height: auto !important;
+  aspect-ratio: 16 / 9;
+  border-radius: 0;
+}
+
+/* Grid card info sections */
+.gridLayout [class*="info"] {
+  padding: 12px;
+  gap: 4px;
+}
+
+.gridLayout [class*="title"] {
+  font-size: 0.82rem;
+  line-height: 1.3;
+}
+
+.gridLayout [class*="channel"] {
+  font-size: 0.75rem;
+}
+
+.gridLayout [class*="description"] {
+  display: none;
+}
+
+.gridLayout [class*="meta"] {
+  font-size: 0.72rem;
+  margin-top: 4px;
+}
+
+.gridLayout [class*="queueIndicator"] {
+  bottom: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+}
+
+.gridLayout [class*="queueIndicator"] svg {
+  width: 14px;
+  height: 14px;
+}

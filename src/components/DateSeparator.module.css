@@ -1,0 +1,27 @@
+.separator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 24px 8px;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  background: var(--bg-surface);
+  position: sticky;
+  top: 56px;
+  z-index: 10;
+}
+
+.separator:first-child {
+  padding-top: 12px;
+}
+
+.separator::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}

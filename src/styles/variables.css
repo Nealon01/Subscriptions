@@ -1,0 +1,21 @@
+:root {
+  --bg-deep: #0a0a0c;
+  --bg-surface: #121215;
+  --bg-card: #18181c;
+  --bg-card-hover: #1e1e24;
+  --bg-elevated: #222228;
+  --border: #2a2a32;
+  --border-light: #35353f;
+  --text-primary: #e8e8ec;
+  --text-secondary: #9090a0;
+  --text-tertiary: #606070;
+  --accent: #e23636;
+  --accent-hover: #ff4444;
+  --accent-muted: rgba(226, 54, 54, 0.12);
+  --accent-green: #2dcc70;
+  --accent-green-muted: rgba(45, 204, 112, 0.12);
+  --radius: 8px;
+  --radius-lg: 12px;
+  --font-body: 'DM Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
