@@ -15,12 +15,10 @@ export function useWebSocket(handlers = {}) {
     const ws = createWebSocket();
     wsRef.current = ws;
 
-    // Poll connection status
-    const statusInterval = setInterval(() => {
-      setIsConnected(ws.isConnected());
-    }, 1000);
+    // Event-based connection tracking (no polling)
+    const unsubStatus = ws.onStatusChange(setIsConnected);
 
-    const unsubscribe = ws.onMessage((message) => {
+    const unsubMessage = ws.onMessage((message) => {
       const h = handlersRef.current;
 
       switch (message.type) {
@@ -45,8 +43,8 @@ export function useWebSocket(handlers = {}) {
     });
 
     return () => {
-      clearInterval(statusInterval);
-      unsubscribe();
+      unsubStatus();
+      unsubMessage();
       ws.close();
       wsRef.current = null;
     };

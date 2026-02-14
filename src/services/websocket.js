@@ -1,8 +1,13 @@
 export function createWebSocket() {
   let ws = null;
   let listeners = [];
+  let statusListeners = [];
   let reconnectTimer = null;
   let intentionallyClosed = false;
+
+  function notifyStatus(connected) {
+    statusListeners.forEach((cb) => cb(connected));
+  }
 
   function connect() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -10,10 +15,12 @@ export function createWebSocket() {
 
     ws.onopen = () => {
       console.log('WebSocket connected');
+      notifyStatus(true);
     };
 
     ws.onclose = () => {
       console.log('WebSocket disconnected');
+      notifyStatus(false);
       if (!intentionallyClosed) {
         reconnectTimer = setTimeout(connect, 3000);
       }
@@ -43,6 +50,15 @@ export function createWebSocket() {
       };
     },
 
+    onStatusChange(callback) {
+      statusListeners.push(callback);
+      // Fire immediately with current state
+      callback(ws && ws.readyState === WebSocket.OPEN);
+      return () => {
+        statusListeners = statusListeners.filter((cb) => cb !== callback);
+      };
+    },
+
     isConnected() {
       return ws && ws.readyState === WebSocket.OPEN;
     },
@@ -58,6 +74,7 @@ export function createWebSocket() {
         ws = null;
       }
       listeners = [];
+      statusListeners = [];
     },
   };
 }
