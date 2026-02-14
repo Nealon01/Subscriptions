@@ -100,6 +100,30 @@
   opacity: 0.7;
 }
 
+.btnRefreshing {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.btnRefreshing:hover {
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  border-color: var(--border);
+}
+
+.btnRefreshing:active {
+  transform: none;
+}
+
+.btnRefreshing svg {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 @media (max-width: 640px) {
   .topbar {
     padding: 0 14px;

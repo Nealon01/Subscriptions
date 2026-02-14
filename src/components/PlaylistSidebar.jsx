@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback, useRef } from 'react';
 import { parseDurationToMinutes } from '../utils/format.js';
+import { matchesSearch } from '../utils/search.js';
 import VideoCard from './VideoCard.jsx';
 import styles from './PlaylistSidebar.module.css';
 
@@ -28,11 +29,8 @@ export default function PlaylistSidebar({
   const filteredItems = useMemo(() => {
     let result = items;
     if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(
-        (item) =>
-          item.title?.toLowerCase().includes(q) ||
-          item.channelName?.toLowerCase().includes(q)
+      result = result.filter((item) =>
+        matchesSearch(searchQuery, item.title, item.channelName)
       );
     }
     if (sortMode !== 'original') {

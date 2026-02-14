@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { getFeed } from '../services/api.js';
 import { parseDurationToMinutes } from '../utils/format.js';
+import { matchesSearch } from '../utils/search.js';
 
 export function useFeed() {
   const [videos, setVideos] = useState([]);
@@ -49,14 +50,9 @@ export function useFeed() {
         }
       }
 
-      // Search filter
+      // Search filter (multi-keyword, quoted phrases)
       if (searchQuery) {
-        const q = searchQuery.toLowerCase();
-        vids = vids.filter(
-          (v) =>
-            v.title.toLowerCase().includes(q) ||
-            v.channelName.toLowerCase().includes(q)
-        );
+        vids = vids.filter((v) => matchesSearch(searchQuery, v.title, v.channelName));
       }
 
       // Duration filter

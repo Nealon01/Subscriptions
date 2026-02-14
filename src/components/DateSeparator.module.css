@@ -19,6 +19,31 @@
   padding-top: 12px;
 }
 
+.clickable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.clickable:hover {
+  color: var(--text-secondary);
+}
+
+.chevron {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+
+.chevronCollapsed {
+  transform: rotate(-90deg);
+}
+
+.count {
+  color: var(--text-tertiary);
+  opacity: 0.6;
+}
+
 .separator::after {
   content: '';
   flex: 1;

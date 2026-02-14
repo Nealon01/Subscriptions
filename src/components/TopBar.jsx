@@ -7,6 +7,7 @@ export default function TopBar({
   filteredVideoCount,
   queueCount,
   isAuthenticated,
+  refreshActive,
   onPlaylistClick,
   onSettingsClick,
   onRefreshClick,
@@ -55,9 +56,10 @@ export default function TopBar({
               </svg>
             </button>
             <button
-              className={styles.btn}
+              className={`${styles.btn} ${refreshActive ? styles.btnRefreshing : ''}`}
               onClick={onRefreshClick}
-              title="Refresh feed"
+              disabled={refreshActive}
+              title={refreshActive ? 'Refresh in progress...' : 'Refresh feed'}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M1 4v6h6M23 20v-6h-6" />

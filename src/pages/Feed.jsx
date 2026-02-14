@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, startTransition } from 'react';
 import { useAuth } from '../hooks/useAuth.js';
 import { useFeed } from '../hooks/useFeed.js';
 import { usePlaylist } from '../hooks/usePlaylist.js';
@@ -33,7 +33,9 @@ export default function Feed() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshProgress, setRefreshProgress] = useState({ pct: 0, title: '', text: '' });
   const [showFeed, setShowFeed] = useState(false);
+  const [collapsedDates, setCollapsedDates] = useState(new Set());
 
+  const [refreshActive, setRefreshActive] = useState(false);
   const refreshIsBackgroundRef = useRef(false);
   const isLoadingMoreRef = useRef(false);
 
@@ -59,6 +61,16 @@ export default function Feed() {
     () => filteredVideos.slice(0, displayCount),
     [filteredVideos, displayCount]
   );
+
+  // Count videos per date label (from full filtered list, not just loaded slice)
+  const dateCounts = useMemo(() => {
+    const counts = {};
+    for (const video of filteredVideos) {
+      const label = getDateLabel(video.published);
+      counts[label] = (counts[label] || 0) + 1;
+    }
+    return counts;
+  }, [filteredVideos]);
 
   // Group videos by date
   const groupedVideos = useMemo(() => {
@@ -95,6 +107,9 @@ export default function Feed() {
         }
       },
       onRefreshProgress: (data) => {
+        // Skip progress state updates during background refresh — avoids unnecessary re-renders
+        if (refreshIsBackgroundRef.current) return;
+
         if (data.phase === 'subscriptions') {
           setRefreshProgress({ pct: 5, title: 'Loading subscriptions...', text: '' });
         } else if (data.phase === 'videos') {
@@ -109,7 +124,11 @@ export default function Feed() {
         }
       },
       onRefreshComplete: async (data) => {
-        setRefreshProgress({ pct: 100, title: 'Done!', text: '' });
+        const isBackground = refreshIsBackgroundRef.current;
+
+        if (!isBackground) {
+          setRefreshProgress({ pct: 100, title: 'Done!', text: '' });
+        }
 
         const feedData = await feed.loadFeed();
         if (feedData) {
@@ -120,13 +139,18 @@ export default function Feed() {
           }
         }
 
-        if (!refreshIsBackgroundRef.current) {
+        if (!isBackground) {
           await new Promise((r) => setTimeout(r, 300));
           setIsRefreshing(false);
           setShowFeed(true);
         } else {
-          setDisplayCount(VIDEOS_PER_PAGE);
+          // Defer the heavy re-render so the UI stays responsive
+          startTransition(() => {
+            setDisplayCount(VIDEOS_PER_PAGE);
+          });
         }
+
+        setRefreshActive(false);
 
         if (data.newVideos > 0) {
           showToast(`Found ${data.newVideos} new video${data.newVideos > 1 ? 's' : ''}!`, 'success');
@@ -135,6 +159,7 @@ export default function Feed() {
         }
       },
       onRefreshError: (data) => {
+        setRefreshActive(false);
         showToast('Refresh error: ' + data.error, 'error');
         if (!refreshIsBackgroundRef.current) {
           setIsRefreshing(false);
@@ -155,17 +180,18 @@ export default function Feed() {
     let cancelled = false;
 
     (async () => {
-      const feedData = await feed.loadFeed();
+      // Load feed and playlist in parallel
+      const [feedData] = await Promise.all([
+        feed.loadFeed(),
+        playlist.ensurePlaylist().then((plId) => {
+          if (plId) return playlist.loadPlaylistItems(plId);
+        }),
+      ]);
 
       if (cancelled) return;
 
       if (feedData && feedData.videos && feedData.videos.length > 0) {
         setShowFeed(true);
-
-        const plData = await playlist.ensurePlaylist();
-        if (plData) {
-          await playlist.loadPlaylistItems(plData);
-        }
 
         // Background refresh if stale
         const dataAge = feedData.timestamp ? Date.now() - feedData.timestamp : Infinity;
@@ -203,6 +229,20 @@ export default function Feed() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, [displayCount, filteredVideos.length]);
 
+  // When collapsing sections, auto-load more if page becomes too short to scroll
+  useEffect(() => {
+    if (collapsedDates.size === 0) return;
+    if (displayCount >= filteredVideos.length) return;
+
+    const check = () => {
+      if (document.documentElement.scrollHeight <= window.innerHeight + 200) {
+        setDisplayCount((prev) => Math.min(prev + VIDEOS_PER_PAGE, filteredVideos.length));
+      }
+    };
+    // Run after DOM updates
+    requestAnimationFrame(check);
+  }, [collapsedDates, displayCount, filteredVideos.length]);
+
   // Reset display count when filters change
   useEffect(() => {
     setDisplayCount(VIDEOS_PER_PAGE);
@@ -211,7 +251,9 @@ export default function Feed() {
   // Refresh handler
   const doRefresh = useCallback(
     async (background = false) => {
+      if (refreshActive) return; // Already running
       refreshIsBackgroundRef.current = background;
+      setRefreshActive(true);
 
       if (!background) {
         setIsRefreshing(true);
@@ -229,10 +271,12 @@ export default function Feed() {
             setIsRefreshing(false);
             setShowFeed(true);
           }
+          // Keep refreshActive true — server is still running, we'll get WS completion
           return;
         }
         // Progress updates arrive via WebSocket
       } catch (err) {
+        setRefreshActive(false);
         if (err.message === 'SESSION_EXPIRED') {
           showToast('Session expired. Please sign in again.', 'error');
           logout();
@@ -299,6 +343,7 @@ export default function Feed() {
         filteredVideoCount={filteredVideos.length}
         queueCount={playlist.queuedVideoIds.size}
         isAuthenticated={isAuthenticated}
+        refreshActive={refreshActive}
         onPlaylistClick={handlePlaylistClick}
         onSettingsClick={() => setSettingsOpen((prev) => !prev)}
         onRefreshClick={() => doRefresh(false)}
@@ -402,25 +447,37 @@ export default function Feed() {
 
                 return sections.map((section) => (
                   <React.Fragment key={section.label}>
-                    <DateSeparator label={section.label} />
-                    <VideoGrid
-                      videosPerRow={settings.videosPerRow}
-                      density={settings.density}
-                    >
-                      {section.videos.map((video) => (
-                        <VideoCard
-                          key={video.videoId}
-                          video={video}
-                          isQueued={playlist.queuedVideoIds.has(video.videoId)}
-                          thumbSize={settings.thumbSize}
-                          isGrid={isGrid}
-                          channelThumbnail={channelThumbnailMap[video.channelId]}
-                          onThumbnailClick={handleThumbnailClick}
-                          onTitleClick={handleTitleClick}
-                          onChannelClick={handleChannelClick}
-                        />
-                      ))}
-                    </VideoGrid>
+                    <DateSeparator
+                      label={section.label}
+                      count={dateCounts[section.label]}
+                      collapsed={collapsedDates.has(section.label)}
+                      onToggle={() => setCollapsedDates((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(section.label)) next.delete(section.label);
+                        else next.add(section.label);
+                        return next;
+                      })}
+                    />
+                    {!collapsedDates.has(section.label) && (
+                      <VideoGrid
+                        videosPerRow={settings.videosPerRow}
+                        density={settings.density}
+                      >
+                        {section.videos.map((video) => (
+                          <VideoCard
+                            key={video.videoId}
+                            video={video}
+                            isQueued={playlist.queuedVideoIds.has(video.videoId)}
+                            thumbSize={settings.thumbSize}
+                            isGrid={isGrid}
+                            channelThumbnail={channelThumbnailMap[video.channelId]}
+                            onThumbnailClick={handleThumbnailClick}
+                            onTitleClick={handleTitleClick}
+                            onChannelClick={handleChannelClick}
+                          />
+                        ))}
+                      </VideoGrid>
+                    )}
                   </React.Fragment>
                 ));
               })()
