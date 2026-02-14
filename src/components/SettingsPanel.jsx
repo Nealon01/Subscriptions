@@ -32,19 +32,55 @@ export default function SettingsPanel({ isOpen, settings, onUpdateSetting, cache
     return `Updated ${minutes}m ago`;
   })();
 
-  // Duration filter display
+  // Duration filter values
+  const durMin = settings.durationFilter?.min || 0;
+  const durMax = settings.durationFilter?.max ?? Infinity;
+  const isAllDurations = durMin === 0 && durMax === Infinity;
+
   const durationDisplay = (() => {
-    const { min, max } = settings.durationFilter || { min: 0, max: Infinity };
-    if (min === 0 && max >= 120) return 'All durations';
-    if (min === 0) return `Up to ${max} minutes`;
-    if (max >= 120) return `${min}+ minutes`;
-    return `${min} - ${max} minutes`;
+    if (isAllDurations) return 'All durations';
+    if (durMin === 0) return `Up to ${durMax} min`;
+    if (durMax === Infinity) return `${durMin}+ min`;
+    return `${durMin} – ${durMax} min`;
   })();
 
-  const durationMin = settings.durationFilter?.min || 0;
-  const durationMax = settings.durationFilter?.max === Infinity || !settings.durationFilter?.max
-    ? 120
-    : Math.min(settings.durationFilter.max, 120);
+  const stepDuration = (field, delta) => {
+    const curMin = settings.durationFilter?.min || 0;
+    const curMax = settings.durationFilter?.max ?? Infinity;
+
+    if (field === 'min') {
+      const next = Math.max(0, curMin + delta);
+      // Don't let min exceed max (unless max is Infinity)
+      const clamped = curMax === Infinity ? next : Math.min(next, curMax);
+      onUpdateSetting('durationFilter', { min: clamped, max: curMax });
+    } else {
+      if (curMax === Infinity) {
+        // Stepping from "no limit" — start at 60 (down) or delta value (up)
+        const start = delta > 0 ? delta : 60;
+        onUpdateSetting('durationFilter', { min: Math.min(curMin, start), max: start });
+        return;
+      }
+      const next = Math.max(0, curMax + delta);
+      onUpdateSetting('durationFilter', { min: Math.min(curMin, next), max: next || Infinity });
+    }
+  };
+
+  const setDurationField = (field, value) => {
+    const curMin = settings.durationFilter?.min || 0;
+    const curMax = settings.durationFilter?.max ?? Infinity;
+    const num = Math.max(0, parseInt(value) || 0);
+
+    if (field === 'min') {
+      const clamped = curMax === Infinity ? num : Math.min(num, curMax);
+      onUpdateSetting('durationFilter', { min: clamped, max: curMax });
+    } else {
+      onUpdateSetting('durationFilter', { min: Math.min(curMin, num), max: num || Infinity });
+    }
+  };
+
+  const resetDuration = () => {
+    onUpdateSetting('durationFilter', { min: 0, max: Infinity });
+  };
 
   return (
     <div className={`${styles.panel} ${isOpen ? styles.open : ''}`}>
@@ -110,65 +146,69 @@ export default function SettingsPanel({ isOpen, settings, onUpdateSetting, cache
           <div className={styles.label}>Video Duration</div>
           <div className={styles.durationControls}>
             <div className={styles.durationRow}>
-              <span className={styles.durationLabel}>{durationMin}m</span>
-              <input
-                type="range"
-                className={styles.slider}
-                min="0"
-                max="120"
-                step="1"
-                value={durationMin}
-                onChange={(e) => {
-                  const min = parseInt(e.target.value);
-                  const currentMax = settings.durationFilter?.max === Infinity ? 120 : (settings.durationFilter?.max || 120);
-                  const max = Math.max(min, currentMax);
-                  onUpdateSetting('durationFilter', {
-                    min,
-                    max: max >= 120 ? Infinity : max,
-                  });
-                }}
-              />
+              <span className={styles.durationFieldLabel}>Min</span>
+              <div className={styles.stepper}>
+                <button className={styles.stepBtn} onClick={() => stepDuration('min', -60)}>-1h</button>
+                <button className={styles.stepBtn} onClick={() => stepDuration('min', -10)}>-10</button>
+                <button className={styles.stepBtn} onClick={() => stepDuration('min', -1)}>-1</button>
+                <input
+                  type="number"
+                  className={styles.durationInput}
+                  min="0"
+                  value={durMin}
+                  onChange={(e) => setDurationField('min', e.target.value)}
+                />
+                <button className={styles.stepBtn} onClick={() => stepDuration('min', 1)}>+1</button>
+                <button className={styles.stepBtn} onClick={() => stepDuration('min', 10)}>+10</button>
+                <button className={styles.stepBtn} onClick={() => stepDuration('min', 60)}>+1h</button>
+              </div>
             </div>
             <div className={styles.durationRow}>
-              <span className={styles.durationLabel}>{durationMax >= 120 ? '\u221E' : `${durationMax}m`}</span>
-              <input
-                type="range"
-                className={styles.slider}
-                min="0"
-                max="120"
-                step="1"
-                value={durationMax}
-                onChange={(e) => {
-                  const max = parseInt(e.target.value);
-                  const currentMin = settings.durationFilter?.min || 0;
-                  const min = Math.min(currentMin, max);
-                  onUpdateSetting('durationFilter', {
-                    min,
-                    max: max >= 120 ? Infinity : max,
-                  });
-                }}
-              />
+              <span className={styles.durationFieldLabel}>Max</span>
+              <div className={styles.stepper}>
+                <button className={styles.stepBtn} onClick={() => stepDuration('max', -60)}>-1h</button>
+                <button className={styles.stepBtn} onClick={() => stepDuration('max', -10)}>-10</button>
+                <button className={styles.stepBtn} onClick={() => stepDuration('max', -1)}>-1</button>
+                {durMax === Infinity ? (
+                  <input
+                    type="text"
+                    className={styles.durationInput}
+                    value="No limit"
+                    readOnly
+                    onClick={() => stepDuration('max', -1)}
+                  />
+                ) : (
+                  <input
+                    type="number"
+                    className={styles.durationInput}
+                    min="0"
+                    value={durMax}
+                    onChange={(e) => setDurationField('max', e.target.value)}
+                  />
+                )}
+                <button className={styles.stepBtn} onClick={() => stepDuration('max', 1)}>+1</button>
+                <button className={styles.stepBtn} onClick={() => stepDuration('max', 10)}>+10</button>
+                <button className={styles.stepBtn} onClick={() => stepDuration('max', 60)}>+1h</button>
+              </div>
             </div>
+            {!isAllDurations && (
+              <button className={styles.resetBtn} onClick={resetDuration}>Reset to All</button>
+            )}
           </div>
           <div className={styles.value}>{durationDisplay}</div>
         </div>
 
-        {/* Cache Status */}
+        {/* Status */}
         <div className={styles.group}>
-          <div className={styles.label}>Cache Status</div>
+          <div className={styles.label}>Status</div>
           <div className={styles.infoText}>{cacheDisplay}</div>
-        </div>
-
-        {/* Quota Status */}
-        <div className={styles.group}>
-          <div className={styles.label}>API Quota (Today)</div>
           <div
             className={styles.infoText}
             style={quotaData?.warning ? { color: 'var(--accent)' } : undefined}
           >
             {quotaData
-              ? `${quotaData.used} / ${quotaData.budget} budget used (${quotaData.remaining} remaining)`
-              : 'Loading...'}
+              ? `Quota: ${quotaData.used} / ${quotaData.total} (${quotaData.total - quotaData.used} left)`
+              : 'Quota: loading...'}
           </div>
         </div>
       </div>

@@ -21,6 +21,7 @@
 .group {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 8px;
 }
 
@@ -132,15 +133,101 @@
 
 .durationRow {
   display: flex;
-  gap: 12px;
-  width: 100%;
+  flex-direction: column;
   align-items: center;
+  gap: 4px;
 }
 
-.durationLabel {
+.durationFieldLabel {
   font-size: 0.75rem;
   color: var(--text-tertiary);
-  min-width: 40px;
+  min-width: 28px;
+  text-align: right;
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.stepBtn {
+  padding: 3px 6px;
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: all 0.15s;
+  line-height: 1;
+}
+
+.stepBtn:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+}
+
+.stepBtn:active {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+.durationInput {
+  width: 60px;
+  padding: 3px 4px;
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  text-align: center;
+  outline: none;
+  -moz-appearance: textfield;
+}
+
+.durationInput::-webkit-outer-spin-button,
+.durationInput::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.durationInput:focus {
+  border-color: var(--accent);
+}
+
+.durationInput[readonly] {
+  cursor: pointer;
+  color: var(--text-tertiary);
+  font-size: 0.68rem;
+}
+
+.durationUnit {
+  font-size: 0.7rem;
+  color: var(--text-tertiary);
+  margin-left: 2px;
+}
+
+.resetBtn {
+  padding: 4px 10px;
+  border-radius: var(--radius);
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-tertiary);
+  font-size: 0.7rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  align-self: center;
+}
+
+.resetBtn:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+  border-color: var(--text-tertiary);
 }
 
 .infoText {
