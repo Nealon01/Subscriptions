@@ -37,11 +37,13 @@ export function trackQuota(operation, units) {
 /**
  * Check if we can afford to spend the given number of units.
  * @param {number} units - Units we want to spend
+ * @param {{ hardLimit?: boolean }} [options] - Use hard limit (10,000) instead of budget (8,000)
  * @returns {boolean}
  */
-export function canSpend(units) {
+export function canSpend(units, { hardLimit = false } = {}) {
   const used = getUsedToday();
-  return (used + units) <= DAILY_BUDGET;
+  const cap = hardLimit ? HARD_LIMIT : DAILY_BUDGET;
+  return (used + units) <= cap;
 }
 
 /**

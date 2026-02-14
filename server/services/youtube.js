@@ -42,8 +42,8 @@ export async function fetchAllSubscriptions(youtube, quota) {
   let pageToken = undefined;
 
   do {
-    if (!quota.canSpend(1)) {
-      console.log('[youtube] Quota budget reached during subscription fetch');
+    if (!quota.canSpend(1, { hardLimit: true })) {
+      console.log('[youtube] Hard quota limit reached during subscription fetch');
       break;
     }
 
@@ -104,8 +104,8 @@ export async function fetchChannelVideos(youtube, channel, db, quota, options = 
   let pagesProcessed = 0;
 
   do {
-    if (!quota.canSpend(1)) {
-      console.log(`[youtube] Quota budget reached while fetching videos for ${channel.channelName}`);
+    if (!quota.canSpend(1, { hardLimit: true })) {
+      console.log(`[youtube] Hard quota limit reached while fetching videos for ${channel.channelName}`);
       break;
     }
 
@@ -173,8 +173,8 @@ export async function enrichVideos(youtube, videos, quota) {
 
   // Process in batches of 50
   for (let i = 0; i < videos.length; i += 50) {
-    if (!quota.canSpend(1)) {
-      console.log('[youtube] Quota budget reached during video enrichment');
+    if (!quota.canSpend(1, { hardLimit: true })) {
+      console.log('[youtube] Hard quota limit reached during video enrichment');
       break;
     }
 

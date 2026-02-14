@@ -54,6 +54,19 @@ describe('quota service', () => {
     expect(quota.canSpend(2)).toBe(false);
   });
 
+  it('canSpend with hardLimit uses 10,000 instead of 8,000', () => {
+    const date = quota.getPacificDate();
+    saveQuotaUsage(date, 8500);
+
+    // Exceeds soft budget (8000)
+    expect(quota.canSpend(1)).toBe(false);
+
+    // But within hard limit (10000)
+    expect(quota.canSpend(1, { hardLimit: true })).toBe(true);
+    expect(quota.canSpend(1500, { hardLimit: true })).toBe(true);
+    expect(quota.canSpend(1501, { hardLimit: true })).toBe(false);
+  });
+
   it('canSpend returns true when within budget', () => {
     // Fresh database, 0 units used
     expect(quota.canSpend(1)).toBe(true);

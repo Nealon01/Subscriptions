@@ -42,7 +42,7 @@ router.post('/ensure', async (req, res) => {
   try {
     const youtube = createYouTubeClient(req);
 
-    if (!quota.canSpend(1)) {
+    if (!quota.canSpend(1, { hardLimit: true })) {
       return res.status(429).json({ error: 'Daily quota budget reached' });
     }
 
@@ -64,7 +64,7 @@ router.post('/ensure', async (req, res) => {
     }
 
     // Create it if it doesn't exist
-    if (!quota.canSpend(50)) {
+    if (!quota.canSpend(50, { hardLimit: true })) {
       return res.status(429).json({ error: 'Insufficient quota to create playlist' });
     }
 
@@ -108,7 +108,7 @@ router.post('/add', async (req, res) => {
     return res.status(400).json({ error: 'Missing playlistId or videoId' });
   }
 
-  if (!quota.canSpend(50)) {
+  if (!quota.canSpend(50, { hardLimit: true })) {
     return res.status(429).json({ error: 'Daily quota budget reached' });
   }
 
@@ -166,7 +166,7 @@ router.post('/remove', async (req, res) => {
     return res.status(400).json({ error: 'Missing playlistId or videoId' });
   }
 
-  if (!quota.canSpend(51)) {
+  if (!quota.canSpend(51, { hardLimit: true })) {
     return res.status(429).json({ error: 'Daily quota budget reached' });
   }
 
@@ -179,7 +179,7 @@ router.post('/remove', async (req, res) => {
 
     searchLoop:
     do {
-      if (!quota.canSpend(1)) break;
+      if (!quota.canSpend(1, { hardLimit: true })) break;
 
       const listResponse = await youtube.playlistItems.list({
         part: 'snippet',
@@ -204,7 +204,7 @@ router.post('/remove', async (req, res) => {
     }
 
     // Delete the playlist item
-    if (!quota.canSpend(50)) {
+    if (!quota.canSpend(50, { hardLimit: true })) {
       return res.status(429).json({ error: 'Insufficient quota to remove video' });
     }
 
@@ -241,7 +241,7 @@ router.post('/move', async (req, res) => {
     return res.status(400).json({ error: 'Missing playlistId, videoId, or invalid "to" (top|bottom|number)' });
   }
 
-  if (!quota.canSpend(51)) {
+  if (!quota.canSpend(51, { hardLimit: true })) {
     return res.status(429).json({ error: 'Daily quota budget reached' });
   }
 
@@ -255,7 +255,7 @@ router.post('/move', async (req, res) => {
 
     searchLoop:
     do {
-      if (!quota.canSpend(1)) break;
+      if (!quota.canSpend(1, { hardLimit: true })) break;
 
       const listResponse = await youtube.playlistItems.list({
         part: 'snippet',
@@ -281,7 +281,7 @@ router.post('/move', async (req, res) => {
       return res.status(404).json({ error: 'Video not found in playlist' });
     }
 
-    if (!quota.canSpend(50)) {
+    if (!quota.canSpend(50, { hardLimit: true })) {
       return res.status(429).json({ error: 'Insufficient quota to move video' });
     }
 
@@ -327,7 +327,7 @@ router.get('/items', async (req, res) => {
     return res.status(400).json({ error: 'Missing playlistId query parameter' });
   }
 
-  if (!quota.canSpend(1)) {
+  if (!quota.canSpend(1, { hardLimit: true })) {
     return res.status(429).json({ error: 'Daily quota budget reached' });
   }
 
@@ -339,7 +339,7 @@ router.get('/items', async (req, res) => {
     let pageToken = undefined;
 
     do {
-      if (!quota.canSpend(1)) break;
+      if (!quota.canSpend(1, { hardLimit: true })) break;
 
       const response = await youtube.playlistItems.list({
         part: 'snippet',
@@ -373,7 +373,7 @@ router.get('/items', async (req, res) => {
       const videoIds = allItems.map(i => i.videoId).filter(Boolean);
 
       for (let i = 0; i < videoIds.length; i += 50) {
-        if (!quota.canSpend(1)) break;
+        if (!quota.canSpend(1, { hardLimit: true })) break;
 
         const batch = videoIds.slice(i, i + 50);
         const detailsResponse = await youtube.videos.list({
