@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useAuth } from '../hooks/useAuth.js';
 import { useWebSocket } from '../hooks/useWebSocket.js';
 import { useToast } from '../components/Toast.jsx';
-import { getPlaylistItems, getSettings, ensurePlaylist as apiEnsurePlaylist, removeFromPlaylist } from '../services/api.js';
+import { getPlaylistItems, getSettings, ensurePlaylist as apiEnsurePlaylist, removeFromPlaylist, moveInPlaylist } from '../services/api.js';
 import PlayerView from '../components/PlayerView.jsx';
 import PlaylistSidebar from '../components/PlaylistSidebar.jsx';
 import styles from './Playlist.module.css';
@@ -183,6 +183,45 @@ export default function Playlist() {
     [playlistItems, removeVideo]
   );
 
+  // Handle move to top/bottom
+  const handleMoveVideo = useCallback(
+    (videoId, to) => {
+      const index = playlistItems.findIndex((item) => item.videoId === videoId);
+      if (index < 0) return;
+
+      // Optimistic UI update
+      const snapshot = [...playlistItems];
+      setPlaylistItems((prev) => {
+        const item = prev[index];
+        const without = prev.filter((_, i) => i !== index);
+        if (to === 'top') {
+          return [item, ...without];
+        } else {
+          return [...without, item];
+        }
+      });
+
+      // Adjust currentIndex
+      if (index === currentIndex) {
+        setCurrentIndex(to === 'top' ? 0 : playlistItems.length - 1);
+      } else if (to === 'top' && index > currentIndex) {
+        setCurrentIndex((prev) => prev + 1);
+      } else if (to === 'top' && index < currentIndex) {
+        // no change, item moved from above to above
+      } else if (to === 'bottom' && index < currentIndex) {
+        setCurrentIndex((prev) => prev - 1);
+      }
+
+      moveInPlaylist(sessionId, playlistId, videoId, to)
+        .then(() => showToast(`Moved to ${to}`, 'success'))
+        .catch(() => {
+          setPlaylistItems(snapshot);
+          showToast('Failed to move video', 'error');
+        });
+    },
+    [sessionId, playlistId, playlistItems, currentIndex, showToast]
+  );
+
   // Handle video end — auto-remove and advance
   const handleVideoEnd = useCallback(() => {
     if (currentIndex >= 0 && currentIndex < playlistItems.length) {
@@ -243,6 +282,7 @@ export default function Playlist() {
           currentIndex={currentIndex}
           onPlayVideo={handlePlayVideo}
           onRemoveVideo={handleRemoveVideo}
+          onMoveVideo={handleMoveVideo}
         />
       </div>
     </div>

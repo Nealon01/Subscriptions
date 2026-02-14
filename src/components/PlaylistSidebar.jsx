@@ -7,6 +7,7 @@ export default function PlaylistSidebar({
   currentIndex,
   onPlayVideo,
   onRemoveVideo,
+  onMoveVideo,
 }) {
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -84,6 +85,8 @@ export default function PlaylistSidebar({
                 onTitleClick={handleTitleClick}
                 onChannelClick={handleChannelClick}
                 onRemove={onRemoveVideo}
+                onMoveToTop={onMoveVideo && originalIndex > 0 ? (videoId) => onMoveVideo(videoId, 'top') : undefined}
+                onMoveToBottom={onMoveVideo && originalIndex < items.length - 1 ? (videoId) => onMoveVideo(videoId, 'bottom') : undefined}
                 compact
               />
             );

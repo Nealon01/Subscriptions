@@ -91,6 +91,16 @@ export async function removeFromPlaylist(sessionId, playlistId, videoId) {
   return resp.json();
 }
 
+export async function moveInPlaylist(sessionId, playlistId, videoId, to) {
+  const resp = await fetch(`${API_BASE}/playlist/move`, {
+    method: 'POST',
+    headers: headers(sessionId),
+    body: JSON.stringify({ playlistId, videoId, to }),
+  });
+  if (!resp.ok) throw new Error('Failed to move video');
+  return resp.json();
+}
+
 export async function getPlaylistItems(sessionId, playlistId) {
   const resp = await fetch(`${API_BASE}/playlist/items?playlistId=${playlistId}`, {
     headers: headers(sessionId),

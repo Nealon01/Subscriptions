@@ -226,6 +226,91 @@ router.post('/remove', async (req, res) => {
 });
 
 /**
+ * POST /api/playlist/move
+ * Moves a video to a new position in the playlist (top or bottom).
+ * Finds the playlistItem by videoId, then updates its position.
+ *
+ * Body: { playlistId: string, videoId: string, to: 'top' | 'bottom' }
+ * Cost: 1 unit to find + 50 units to update = 51 units
+ */
+router.post('/move', async (req, res) => {
+  const { playlistId, videoId, to } = req.body;
+
+  if (!playlistId || !videoId || !['top', 'bottom'].includes(to)) {
+    return res.status(400).json({ error: 'Missing playlistId, videoId, or invalid "to" (top|bottom)' });
+  }
+
+  if (!quota.canSpend(51)) {
+    return res.status(429).json({ error: 'Daily quota budget reached' });
+  }
+
+  try {
+    const youtube = createYouTubeClient(req);
+
+    // Find the playlist item for this video and count total items
+    let playlistItemId = null;
+    let totalItems = 0;
+    let pageToken = undefined;
+
+    searchLoop:
+    do {
+      if (!quota.canSpend(1)) break;
+
+      const listResponse = await youtube.playlistItems.list({
+        part: 'snippet',
+        playlistId,
+        maxResults: 50,
+        pageToken,
+      });
+      quota.trackQuota('playlistItems.list', 1);
+
+      totalItems = listResponse.data.pageInfo?.totalResults || 0;
+
+      for (const item of (listResponse.data.items || [])) {
+        if (item.snippet.resourceId?.videoId === videoId) {
+          playlistItemId = item.id;
+          break searchLoop;
+        }
+      }
+
+      pageToken = listResponse.data.nextPageToken;
+    } while (pageToken);
+
+    if (!playlistItemId) {
+      return res.status(404).json({ error: 'Video not found in playlist' });
+    }
+
+    if (!quota.canSpend(50)) {
+      return res.status(429).json({ error: 'Insufficient quota to move video' });
+    }
+
+    const newPosition = to === 'top' ? 0 : Math.max(0, totalItems - 1);
+
+    await youtube.playlistItems.update({
+      part: 'snippet',
+      requestBody: {
+        id: playlistItemId,
+        snippet: {
+          playlistId,
+          position: newPosition,
+          resourceId: {
+            kind: 'youtube#video',
+            videoId,
+          },
+        },
+      },
+    });
+    quota.trackQuota('playlistItems.update', 50);
+
+    console.log(`[playlist] Moved video ${videoId} to ${to} (position ${newPosition})`);
+    res.json({ moved: true, videoId, position: newPosition });
+  } catch (err) {
+    console.error('[playlist] Error moving video:', err.message);
+    res.status(500).json({ error: 'Failed to move video: ' + err.message });
+  }
+});
+
+/**
  * GET /api/playlist/items
  * Lists all items in the "To Watch" playlist with full video details.
  *
