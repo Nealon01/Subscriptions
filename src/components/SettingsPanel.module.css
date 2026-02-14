@@ -1,7 +1,4 @@
 .panel {
-  position: sticky;
-  top: 56px;
-  z-index: 95;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border);
   max-height: 0;

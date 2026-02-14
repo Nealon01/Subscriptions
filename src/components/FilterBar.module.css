@@ -1,7 +1,4 @@
 .filterBar {
-  position: sticky;
-  top: 56px;
-  z-index: 96;
   display: flex;
   align-items: center;
   gap: 10px;

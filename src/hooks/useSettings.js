@@ -21,13 +21,14 @@ export function useSettings(sessionId) {
     getSettings(sessionId)
       .then((data) => {
         if (cancelled || !data) return;
-        // Merge with defaults to handle missing keys
-        const merged = { ...DEFAULT_SETTINGS, ...data };
+        // API returns { settings: {...} } — unwrap before merging
+        const saved = data.settings || data;
+        const merged = { ...DEFAULT_SETTINGS, ...saved };
         // Ensure durationFilter has proper structure
         if (merged.durationFilter) {
           merged.durationFilter = {
             min: merged.durationFilter.min || 0,
-            max: merged.durationFilter.max === null || merged.durationFilter.max === undefined
+            max: merged.durationFilter.max === null || merged.durationFilter.max === undefined || merged.durationFilter.max >= 999
               ? Infinity
               : merged.durationFilter.max,
           };

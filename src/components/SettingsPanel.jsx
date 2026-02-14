@@ -6,12 +6,20 @@ const DENSITY_OPTIONS = ['compact', 'normal', 'comfortable'];
 
 export default function SettingsPanel({ isOpen, settings, onUpdateSetting, cacheTimestamp }) {
   const [quotaData, setQuotaData] = useState(null);
+  const [, setTick] = useState(0);
 
   // Fetch quota when panel opens
   useEffect(() => {
     if (!isOpen) return;
     getQuota().then(setQuotaData).catch(() => {});
   }, [isOpen]);
+
+  // Update cache age display every 30s
+  useEffect(() => {
+    if (!cacheTimestamp) return;
+    const id = setInterval(() => setTick((t) => t + 1), 30000);
+    return () => clearInterval(id);
+  }, [cacheTimestamp]);
 
   // Compute cache age display
   const cacheDisplay = (() => {
@@ -20,6 +28,7 @@ export default function SettingsPanel({ isOpen, settings, onUpdateSetting, cache
     const minutes = Math.floor(age / 60000);
     const hours = Math.floor(minutes / 60);
     if (hours > 0) return `Updated ${hours}h ${minutes % 60}m ago`;
+    if (minutes < 1) return 'Updated just now';
     return `Updated ${minutes}m ago`;
   })();
 

@@ -4,6 +4,7 @@ import styles from './TopBar.module.css';
 export default function TopBar({
   channelCount,
   videoCount,
+  filteredVideoCount,
   queueCount,
   isAuthenticated,
   onPlaylistClick,
@@ -20,7 +21,10 @@ export default function TopBar({
         </div>
         {showControls && channelCount > 0 && (
           <div className={styles.stats}>
-            {channelCount} channels &middot; {videoCount} videos
+            {channelCount} channels &middot;{' '}
+            {filteredVideoCount != null && filteredVideoCount !== videoCount
+              ? `${filteredVideoCount} / ${videoCount} videos`
+              : `${videoCount} videos`}
           </div>
         )}
       </div>

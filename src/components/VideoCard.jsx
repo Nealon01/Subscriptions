@@ -13,6 +13,7 @@ export default function VideoCard({
   onTitleClick,
   onChannelClick,
   onRemove,
+  compact,
 }) {
   const duration = video.duration ? formatDuration(video.duration) : '';
   const views = video.views && video.views !== '0' ? `${formatViews(video.views)} views` : '';
@@ -26,6 +27,7 @@ export default function VideoCard({
     styles.card,
     isQueued ? styles.queued : '',
     isActive ? styles.active : '',
+    compact ? styles.compact : '',
   ].filter(Boolean).join(' ');
 
   return (

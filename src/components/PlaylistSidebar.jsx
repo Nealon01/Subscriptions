@@ -84,6 +84,7 @@ export default function PlaylistSidebar({
                 onTitleClick={handleTitleClick}
                 onChannelClick={handleChannelClick}
                 onRemove={onRemoveVideo}
+                compact
               />
             );
           })
