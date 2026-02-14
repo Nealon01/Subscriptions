@@ -17,11 +17,11 @@ import {
 } from '../services/database.js';
 import {
   fetchAllSubscriptions,
-  fetchChannelVideos,
   enrichVideos,
   backfillChannel,
   getUploadsPlaylistId,
 } from '../services/youtube.js';
+import { fetchNewVideosRSS } from '../services/rss.js';
 import * as quota from '../services/quota.js';
 import { broadcast } from '../services/websocket.js';
 
@@ -106,81 +106,76 @@ router.post('/refresh', requireAuth, async (req, res) => {
       return;
     }
 
-    // Step 2: For each channel, fetch new videos and INSERT IMMEDIATELY
+    // Step 2: For each channel, fetch new videos via RSS (free, no quota)
     const allNewVideoIds = [];
     let channelsProcessed = 0;
     let totalNewVideos = 0;
+    let rssErrors = 0;
+    const RSS_CONCURRENCY = 10;
 
-    for (const sub of subscriptions) {
-      if (!quota.canSpend(1)) {
-        broadcast('refreshProgress', { phase: 'quota_limit' });
-        console.log(`[feed] Quota budget reached after ${channelsProcessed} channels`);
-        break;
-      }
+    for (let i = 0; i < subscriptions.length; i += RSS_CONCURRENCY) {
+      const batch = subscriptions.slice(i, i + RSS_CONCURRENCY);
 
-      // Skip channels with persistent fetch errors (e.g. deleted playlist)
-      const existingChannel = getChannel(sub.channelId);
-      if (existingChannel?.fetch_error) {
-        console.log(`[feed] Skipping ${sub.title} (previous error: ${existingChannel.fetch_error})`);
-        channelsProcessed++;
-        continue;
-      }
+      const results = await Promise.allSettled(
+        batch.map(async (sub) => {
+          // Skip channels with persistent fetch errors
+          const existingChannel = getChannel(sub.channelId);
+          if (existingChannel?.fetch_error) {
+            return { skipped: true };
+          }
 
-      const uploadsPlaylistId = getUploadsPlaylistId(sub.channelId);
-      upsertChannel({
-        channelId: sub.channelId,
-        channelName: sub.title,
-        thumbnail: sub.thumbnail,
-        uploadsPlaylistId,
-        lastChecked: new Date().toISOString(),
-      });
-
-      try {
-        const channel = {
-          channelId: sub.channelId,
-          channelName: sub.title,
-          uploadsPlaylistId,
-        };
-
-        // Fresh channels: 1 page only. Known channels: fetch until known video.
-        const knownIds = getChannelVideoIds(sub.channelId);
-        const isFresh = knownIds.size === 0;
-
-        const { videos: newVideos, nextPageToken } = await fetchChannelVideos(youtube, channel, db, quota, {
-          maxPages: isFresh ? 1 : Infinity,
-        });
-
-        // INSERT IMMEDIATELY — progress saved even if process is killed
-        if (newVideos.length > 0) {
-          insertVideos(newVideos);
-          totalNewVideos += newVideos.length;
-          allNewVideoIds.push(...newVideos.map(v => v.videoId));
-        }
-
-        // Mark backfill status for fresh channels, save page token for continuation
-        if (isFresh) {
+          // Upsert channel BEFORE video insert (FK integrity)
+          const uploadsPlaylistId = getUploadsPlaylistId(sub.channelId);
           upsertChannel({
             channelId: sub.channelId,
             channelName: sub.title,
+            thumbnail: sub.thumbnail,
             uploadsPlaylistId,
-            backfillComplete: newVideos.length < 50 ? 1 : 0,
-            nextPageToken: nextPageToken || null,
+            lastChecked: new Date().toISOString(),
           });
-        }
-      } catch (err) {
-        const msg = err.message || '';
-        // Mark channels with permanent errors so we skip them next time
-        if (msg.includes('playlistId') && msg.includes('cannot be found')) {
-          console.warn(`[feed] Marking ${sub.title} as broken (playlist not found)`);
-          setChannelError(sub.channelId, 'playlist_not_found');
-        } else {
-          console.error(`[feed] Error fetching videos for ${sub.title}:`, msg);
+
+          const knownIds = getChannelVideoIds(sub.channelId);
+          const isFresh = knownIds.size === 0;
+
+          const newVideos = await fetchNewVideosRSS(sub.channelId, sub.title, knownIds);
+
+          // INSERT IMMEDIATELY — progress saved even if process is killed
+          if (newVideos.length > 0) {
+            insertVideos(newVideos);
+          }
+
+          // Fresh channels with videos need backfill for full history
+          if (isFresh && newVideos.length > 0) {
+            upsertChannel({
+              channelId: sub.channelId,
+              channelName: sub.title,
+              uploadsPlaylistId,
+              backfillComplete: 0,
+            });
+          }
+
+          return { newCount: newVideos.length, videoIds: newVideos.map(v => v.videoId) };
+        })
+      );
+
+      for (const result of results) {
+        channelsProcessed++;
+        if (result.status === 'fulfilled' && !result.value.skipped) {
+          const { newCount, videoIds } = result.value;
+          totalNewVideos += newCount;
+          allNewVideoIds.push(...videoIds);
+        } else if (result.status === 'rejected') {
+          rssErrors++;
+          const err = result.reason;
+          if (err.status === 404) {
+            if (err.channelId) setChannelError(err.channelId, 'rss_not_found');
+          } else {
+            console.error(`[feed] RSS error:`, err.message);
+          }
         }
       }
 
-      channelsProcessed++;
-
-      if (channelsProcessed % 10 === 0 || channelsProcessed === subscriptions.length) {
+      if (channelsProcessed % 50 === 0 || channelsProcessed >= subscriptions.length) {
         broadcast('refreshProgress', {
           phase: 'videos',
           processed: channelsProcessed,
@@ -188,6 +183,8 @@ router.post('/refresh', requireAuth, async (req, res) => {
         });
       }
     }
+
+    console.log(`[feed] RSS complete: ${totalNewVideos} new videos from ${channelsProcessed} channels (${rssErrors} errors, 0 quota)`);
 
     // Step 3: Enrich new videos with duration/views
     if (allNewVideoIds.length > 0) {
