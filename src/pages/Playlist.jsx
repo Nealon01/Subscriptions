@@ -29,15 +29,26 @@ export default function Playlist() {
     () => ({
       onVideoAdded: (data) => {
         if (data.playlistId === playlistId) {
-          showToast('New video added to playlist', 'success');
-          // Reload playlist after a delay for API propagation
-          setTimeout(() => loadPlaylist(playlistId), 1000);
+          showToast('Video added to playlist', 'success');
+          if (data.videoMeta) {
+            // Insert into local state immediately using metadata from the broadcast
+            setPlaylistItems((prev) => [{
+              playlistItemId: data.playlistItemId,
+              videoId: data.videoId,
+              ...data.videoMeta,
+              position: 0,
+              addedAt: new Date().toISOString(),
+            }, ...prev]);
+          } else {
+            // Fallback: reload after delay if no metadata available
+            setTimeout(() => loadPlaylist(playlistId), 2000);
+          }
         }
       },
       onVideoRemoved: (data) => {
         if (data.playlistId === playlistId) {
-          showToast('Video removed from playlist', 'success');
-          setTimeout(() => loadPlaylist(playlistId), 1000);
+          // Remove from local state immediately (no API call needed)
+          setPlaylistItems((prev) => prev.filter((item) => item.videoId !== data.videoId));
         }
       },
     }),
@@ -127,32 +138,36 @@ export default function Playlist() {
 
   // Remove a video from the playlist
   const removeVideo = useCallback(
-    async (videoId, index, autoPlay = true) => {
-      try {
-        await removeFromPlaylist(sessionId, playlistId, videoId);
+    (videoId, index, autoPlay = true) => {
+      // Optimistic: remove from UI immediately
+      const snapshot = [...playlistItems];
 
-        setPlaylistItems((prev) => {
-          const next = prev.filter((item) => item.videoId !== videoId);
+      setPlaylistItems((prev) => {
+        const next = prev.filter((item) => item.videoId !== videoId);
 
-          if (index === currentIndex) {
-            // Play next video or go to empty
-            const nextIndex = Math.min(index, next.length - 1);
-            if (nextIndex >= 0 && autoPlay) {
-              setTimeout(() => setCurrentIndex(nextIndex), 100);
-            } else {
-              setCurrentIndex(-1);
-            }
-          } else if (index < currentIndex) {
-            setCurrentIndex((prev) => prev - 1);
+        if (index === currentIndex) {
+          const nextIndex = Math.min(index, next.length - 1);
+          if (nextIndex >= 0 && autoPlay) {
+            setTimeout(() => setCurrentIndex(nextIndex), 100);
+          } else {
+            setCurrentIndex(-1);
           }
+        } else if (index < currentIndex) {
+          setCurrentIndex((prev) => prev - 1);
+        }
 
-          return next;
+        return next;
+      });
+
+      // Fire API call in background, rollback on failure
+      removeFromPlaylist(sessionId, playlistId, videoId)
+        .then(() => {
+          showToast(autoPlay ? 'Video marked as watched and removed' : 'Removed from playlist', 'success');
+        })
+        .catch(() => {
+          setPlaylistItems(snapshot);
+          showToast('Failed to remove video', 'error');
         });
-
-        showToast(autoPlay ? 'Video marked as watched and removed' : 'Removed from playlist', 'success');
-      } catch (err) {
-        showToast('Failed to remove video', 'error');
-      }
     },
     [sessionId, playlistId, currentIndex, showToast]
   );

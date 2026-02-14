@@ -43,13 +43,22 @@ export function usePlaylist(sessionId) {
   );
 
   const addToQueue = useCallback(
-    async (videoId) => {
+    async (videoId, videoMeta) => {
       if (!playlistId || !sessionId) return false;
+
+      // Optimistic update — show queued immediately
+      setQueuedVideoIds((prev) => new Set([...prev, videoId]));
+
       try {
-        await addToPlaylist(sessionId, playlistId, videoId);
-        setQueuedVideoIds((prev) => new Set([...prev, videoId]));
+        await addToPlaylist(sessionId, playlistId, videoId, videoMeta);
         return true;
       } catch (err) {
+        // Rollback on failure
+        setQueuedVideoIds((prev) => {
+          const next = new Set(prev);
+          next.delete(videoId);
+          return next;
+        });
         console.error('Failed to add to queue:', err);
         return false;
       }
@@ -60,16 +69,26 @@ export function usePlaylist(sessionId) {
   const removeFromQueue = useCallback(
     async (videoId) => {
       if (!playlistId || !sessionId) return false;
+
+      // Optimistic update — remove from UI immediately
+      const prevItems = [];
+      setQueuedVideoIds((prev) => {
+        const next = new Set(prev);
+        next.delete(videoId);
+        return next;
+      });
+      setPlaylistItems((prev) => {
+        prevItems.push(...prev);
+        return prev.filter((item) => item.videoId !== videoId);
+      });
+
       try {
         await removeFromPlaylist(sessionId, playlistId, videoId);
-        setQueuedVideoIds((prev) => {
-          const next = new Set(prev);
-          next.delete(videoId);
-          return next;
-        });
-        setPlaylistItems((prev) => prev.filter((item) => item.videoId !== videoId));
         return true;
       } catch (err) {
+        // Rollback on failure
+        setQueuedVideoIds((prev) => new Set([...prev, videoId]));
+        setPlaylistItems(prevItems);
         console.error('Failed to remove from queue:', err);
         return false;
       }

@@ -258,7 +258,15 @@ export default function Feed() {
         if (ok) showToast('Removed from queue', 'success');
         else showToast('Failed to remove from queue', 'error');
       } else {
-        const ok = await playlist.addToQueue(video.videoId);
+        const ok = await playlist.addToQueue(video.videoId, {
+          title: video.title,
+          channelName: video.channelName,
+          channelId: video.channelId,
+          thumbnail: video.thumbnail,
+          duration: video.duration,
+          views: video.views,
+          published: video.published,
+        });
         if (ok) showToast(`Queued: ${video.title.substring(0, 50)}...`, 'success');
         else showToast('Failed to add to queue', 'error');
       }
@@ -288,6 +296,7 @@ export default function Feed() {
       <TopBar
         channelCount={feed.channels.length}
         videoCount={feed.videos.length}
+        filteredVideoCount={filteredVideos.length}
         queueCount={playlist.queuedVideoIds.size}
         isAuthenticated={isAuthenticated}
         onPlaylistClick={handlePlaylistClick}
@@ -298,21 +307,20 @@ export default function Feed() {
       />
 
       {isAuthenticated && showFeed && (
-        <SettingsPanel
-          isOpen={settingsOpen}
-          settings={settings}
-          onUpdateSetting={updateSetting}
-          cacheTimestamp={feed.cacheTimestamp}
-        />
-      )}
-
-      {isAuthenticated && showFeed && (
-        <FilterBar
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          timeRange={timeRange}
-          onTimeRangeChange={setTimeRange}
-        />
+        <div className={styles.stickyControls}>
+          <SettingsPanel
+            isOpen={settingsOpen}
+            settings={settings}
+            onUpdateSetting={updateSetting}
+            cacheTimestamp={feed.cacheTimestamp}
+          />
+          <FilterBar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            timeRange={timeRange}
+            onTimeRangeChange={setTimeRange}
+          />
+        </div>
       )}
 
       <main className={styles.main}>

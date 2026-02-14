@@ -59,6 +59,7 @@ router.post('/ensure', async (req, res) => {
     );
 
     if (existing) {
+      console.log(`[playlist] Found existing "To Watch" playlist: ${existing.id}`);
       return res.json({ playlistId: existing.id, title: existing.snippet.title, created: false });
     }
 
@@ -81,6 +82,7 @@ router.post('/ensure', async (req, res) => {
     });
     quota.trackQuota('playlists.insert', 50);
 
+    console.log(`[playlist] Created new "To Watch" playlist: ${createResponse.data.id}`);
     res.json({
       playlistId: createResponse.data.id,
       title: createResponse.data.snippet.title,
@@ -100,7 +102,7 @@ router.post('/ensure', async (req, res) => {
  * Cost: 50 units
  */
 router.post('/add', async (req, res) => {
-  const { playlistId, videoId } = req.body;
+  const { playlistId, videoId, videoMeta } = req.body;
 
   if (!playlistId || !videoId) {
     return res.status(400).json({ error: 'Missing playlistId or videoId' });
@@ -128,11 +130,21 @@ router.post('/add', async (req, res) => {
     });
     quota.trackQuota('playlistItems.insert', 50);
 
-    res.json({
+    const result = {
       playlistItemId: response.data.id,
       videoId,
       position: 0,
-    });
+    };
+
+    console.log(`[playlist] Added video ${videoId} to playlist ${playlistId}`);
+
+    // Broadcast to all connected clients
+    const broadcast = req.app.locals.broadcast;
+    if (broadcast) {
+      broadcast('videoAdded', { playlistId, videoId, playlistItemId: result.playlistItemId, videoMeta: videoMeta || null });
+    }
+
+    res.json(result);
   } catch (err) {
     console.error('[playlist] Error adding video:', err.message);
     res.status(500).json({ error: 'Failed to add video to playlist: ' + err.message });
@@ -199,6 +211,13 @@ router.post('/remove', async (req, res) => {
     await youtube.playlistItems.delete({ id: playlistItemId });
     quota.trackQuota('playlistItems.delete', 50);
 
+    // Broadcast to all connected clients
+    const broadcast = req.app.locals.broadcast;
+    if (broadcast) {
+      broadcast('videoRemoved', { playlistId, videoId, playlistItemId });
+    }
+
+    console.log(`[playlist] Removed video ${videoId} from playlist ${playlistId}`);
     res.json({ removed: true, videoId, playlistItemId });
   } catch (err) {
     console.error('[playlist] Error removing video:', err.message);
@@ -304,6 +323,7 @@ router.get('/items', async (req, res) => {
       }
     }
 
+    console.log(`[playlist] Listed ${allItems.length} items from playlist ${playlistId}`);
     res.json({
       playlistId,
       items: allItems,

@@ -71,11 +71,11 @@ export async function ensurePlaylist(sessionId) {
   return resp.json();
 }
 
-export async function addToPlaylist(sessionId, playlistId, videoId) {
+export async function addToPlaylist(sessionId, playlistId, videoId, videoMeta) {
   const resp = await fetch(`${API_BASE}/playlist/add`, {
     method: 'POST',
     headers: headers(sessionId),
-    body: JSON.stringify({ playlistId, videoId }),
+    body: JSON.stringify({ playlistId, videoId, videoMeta }),
   });
   if (!resp.ok) throw new Error('Failed to add to playlist');
   return resp.json();
