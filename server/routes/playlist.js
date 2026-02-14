@@ -236,8 +236,9 @@ router.post('/remove', async (req, res) => {
 router.post('/move', async (req, res) => {
   const { playlistId, videoId, to } = req.body;
 
-  if (!playlistId || !videoId || !['top', 'bottom'].includes(to)) {
-    return res.status(400).json({ error: 'Missing playlistId, videoId, or invalid "to" (top|bottom)' });
+  const isValidTo = to === 'top' || to === 'bottom' || (Number.isInteger(to) && to >= 0);
+  if (!playlistId || !videoId || !isValidTo) {
+    return res.status(400).json({ error: 'Missing playlistId, videoId, or invalid "to" (top|bottom|number)' });
   }
 
   if (!quota.canSpend(51)) {
@@ -284,7 +285,9 @@ router.post('/move', async (req, res) => {
       return res.status(429).json({ error: 'Insufficient quota to move video' });
     }
 
-    const newPosition = to === 'top' ? 0 : Math.max(0, totalItems - 1);
+    const newPosition = to === 'top' ? 0
+      : to === 'bottom' ? Math.max(0, totalItems - 1)
+      : Math.min(to, Math.max(0, totalItems - 1));
 
     await youtube.playlistItems.update({
       part: 'snippet',

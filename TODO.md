@@ -34,6 +34,9 @@
   - Hover-reveal buttons on each playlist card
   - Optimistic UI with rollback on failure
   - Cost: 51 quota units per move (1 to find + 50 to update)
+- [ ] **Drag to reorder** (Playlist page) - Fine-grained repositioning via drag-and-drop
+  - For small adjustments; move-to-top/bottom handles large jumps
+  - Cost: 51 quota units per drag (same API call)
 
 ### Channel Management
 - [ ] **Infrequently watched filter** - Right-click channel names to mark, toggle to hide

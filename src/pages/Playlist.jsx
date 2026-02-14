@@ -183,37 +183,56 @@ export default function Playlist() {
     [playlistItems, removeVideo]
   );
 
-  // Handle move to top/bottom
+  // Handle move to top/bottom or to a specific position (drag reorder)
   const handleMoveVideo = useCallback(
     (videoId, to) => {
       const index = playlistItems.findIndex((item) => item.videoId === videoId);
       if (index < 0) return;
 
-      // Optimistic UI update
       const snapshot = [...playlistItems];
-      setPlaylistItems((prev) => {
-        const item = prev[index];
-        const without = prev.filter((_, i) => i !== index);
-        if (to === 'top') {
-          return [item, ...without];
-        } else {
-          return [...without, item];
-        }
-      });
 
-      // Adjust currentIndex
-      if (index === currentIndex) {
-        setCurrentIndex(to === 'top' ? 0 : playlistItems.length - 1);
-      } else if (to === 'top' && index > currentIndex) {
-        setCurrentIndex((prev) => prev + 1);
-      } else if (to === 'top' && index < currentIndex) {
-        // no change, item moved from above to above
-      } else if (to === 'bottom' && index < currentIndex) {
-        setCurrentIndex((prev) => prev - 1);
+      if (typeof to === 'number') {
+        // Drag reorder to specific position
+        if (to === index) return;
+        setPlaylistItems((prev) => {
+          const next = [...prev];
+          const [item] = next.splice(index, 1);
+          next.splice(to, 0, item);
+          return next;
+        });
+        if (index === currentIndex) {
+          setCurrentIndex(to);
+        } else if (index < currentIndex && to >= currentIndex) {
+          setCurrentIndex((prev) => prev - 1);
+        } else if (index > currentIndex && to <= currentIndex) {
+          setCurrentIndex((prev) => prev + 1);
+        }
+      } else {
+        // Move to top/bottom
+        setPlaylistItems((prev) => {
+          const item = prev[index];
+          const without = prev.filter((_, i) => i !== index);
+          if (to === 'top') {
+            return [item, ...without];
+          } else {
+            return [...without, item];
+          }
+        });
+        if (index === currentIndex) {
+          setCurrentIndex(to === 'top' ? 0 : playlistItems.length - 1);
+        } else if (to === 'top' && index > currentIndex) {
+          setCurrentIndex((prev) => prev + 1);
+        } else if (to === 'top' && index < currentIndex) {
+          // no change
+        } else if (to === 'bottom' && index < currentIndex) {
+          setCurrentIndex((prev) => prev - 1);
+        }
       }
 
       moveInPlaylist(sessionId, playlistId, videoId, to)
-        .then(() => showToast(`Moved to ${to}`, 'success'))
+        .then(() => {
+          if (typeof to !== 'number') showToast(`Moved to ${to}`, 'success');
+        })
         .catch(() => {
           setPlaylistItems(snapshot);
           showToast('Failed to move video', 'error');
