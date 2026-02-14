@@ -3,14 +3,19 @@
 ## Phase 1: Quick Wins ⚡
 
 ### Subs Page Improvements
-- [ ] **Sticky search + settings** - Pin top bar when scrolling
-- [ ] **Improve density settings** - Make compact/normal/comfortable more dramatic
-- [ ] **Real-time cache timer** - Update "X minutes ago" live without refresh
+- [x] **Sticky search + settings** - Pin top bar when scrolling
+  - Wrapped SettingsPanel + FilterBar in single `stickyControls` div
+  - Fixed overlap bug where FilterBar covered SettingsPanel on scroll
+- [x] **Real-time cache timer** - Update "X minutes ago" live without refresh
+  - 30-second interval tick, shows "Updated just now" for < 1 minute
+- [x] **Settings persist on reload** - Fixed API response unwrapping bug
+  - API returns `{ settings: {...} }`, code now correctly reads `data.settings`
+- ~~**Improve density settings**~~ - Current settings are fine as-is
 - [ ] **Duration filter slider UI** - Add min/max range sliders (filtering logic in Phase 2)
 
 ### Playlist Page Improvements
-- [ ] **Fix padding** - Channel names currently cut off at bottom
-- [ ] **Clickable channel names** - Make channels linkable (both player and list)
+- [x] **Fix padding** - Compact card variant with tighter padding and smaller thumbnails
+- [x] **Clickable channel names** - Channels linkable in both player and sidebar
 - [ ] **Sticky search bar** - Always visible when scrolling
 
 ---
@@ -20,12 +25,15 @@
 ### Filtering & Sorting
 - [ ] **Fetch video durations** (Subs page) - From YouTube API (1 quota unit / 50 videos)
 - [ ] **Duration filter logic** (Subs page) - Filter videos by length range
-- [ ] **Sort by duration** (Playlist page ONLY) - Cycle through: shortest → longest → original order
-  - NOT a permanent reorder, just a view toggle
-  - Doesn't modify actual YouTube playlist order
+- [x] **Sort by duration** (Playlist page ONLY) - Cycle through: shortest → longest → original order
+  - Cycle button in sidebar header: Order: Added → Shortest first → Longest first
+  - View toggle only — doesn't modify actual YouTube playlist order
 
-### Drag & Drop
-- [ ] **Drag to rearrange** (Playlist page) - Reorder YouTube playlist via API
+### Playlist Reordering
+- [x] **Move to top / Move to bottom** (Playlist page) - Reorder via YouTube API
+  - Hover-reveal buttons on each playlist card
+  - Optimistic UI with rollback on failure
+  - Cost: 51 quota units per move (1 to find + 50 to update)
 
 ### Channel Management
 - [ ] **Infrequently watched filter** - Right-click channel names to mark, toggle to hide
@@ -66,8 +74,8 @@ Make the visual differences more obvious:
 - Click 3: Back to original order (date added / manual drag order)
 - Cycles continuously
 
-### Drag to Rearrange
-**Playlist Page Only:** Actually reorders YouTube playlist via API (50 quota units per move - expensive!)
+### Move to Top / Move to Bottom
+**Playlist Page Only:** Reorders YouTube playlist via API (51 quota units per move). Hover-reveal buttons instead of drag-drop for simplicity and lower interaction cost.
 
 ### Duration Filter
 - Min slider: 0-120 minutes
@@ -93,24 +101,24 @@ Make the visual differences more obvious:
 ## Testing Checklist
 
 ### Phase 1
-- [ ] Scroll subs page → search bar stays at top
-- [ ] Open settings while scrolled → panel stays visible
-- [ ] Toggle density → see obvious visual differences
+- [x] Scroll subs page → search bar stays at top
+- [x] Open settings while scrolled → panel stays visible
+- ~~Toggle density → see obvious visual differences~~ (skipped — fine as-is)
 - [ ] Scroll playlist page → search bar stays at top
-- [ ] Check long channel names → not cut off
-- [ ] Click channel names → opens YouTube channel
-- [ ] Wait 2 minutes → cache timer updates
+- [x] Check long channel names → not cut off (compact variant with ellipsis)
+- [x] Click channel names → opens YouTube channel
+- [x] Wait 2 minutes → cache timer updates (30s interval)
 
 ### Phase 2
 - [ ] Load subs page → durations fetched automatically
 - [ ] Set duration min to 10 → only videos ≥10min show
 - [ ] Set duration max to 20 → only videos ≤20min show
 - [ ] Set both → videos in range show
-- [ ] Playlist sort click 1 → shortest first
-- [ ] Playlist sort click 2 → longest first
-- [ ] Playlist sort click 3 → back to original
-- [ ] Reload page → playlist order unchanged (still original)
-- [ ] Drag video on playlist page → YouTube playlist reordered
+- [x] Playlist sort click 1 → shortest first
+- [x] Playlist sort click 2 → longest first
+- [x] Playlist sort click 3 → back to original
+- [x] Reload page → playlist order unchanged (still original)
+- [x] Move to top/bottom buttons → YouTube playlist reordered
 - [ ] Right-click channel → context menu appears
 - [ ] Mark as infrequent → toast notification
 - [ ] Toggle filter → infrequent channels hide
@@ -126,9 +134,9 @@ Make the visual differences more obvious:
 - [ ] Use all filters together (time + duration + search + infrequent + unwatched)
 - [ ] Switch to grid layout → all features work
 - [ ] Search playlist + sort → works together
-- [ ] Search playlist + drag → works together
+- [ ] Search playlist + move to top/bottom → works together
 - [ ] Check mobile → sticky headers work
-- [ ] Check mobile → drag-drop with touch
+- [ ] Check mobile → move buttons accessible
 - [ ] Check mobile → context menu accessible
 
 ---
@@ -166,10 +174,10 @@ Make the visual differences more obvious:
 ### Edge Cases to Handle
 1. Duration fetching failure → Show videos in "All durations"
 2. Custom order with active filters → Apply custom order after filters
-3. Drag in grid layout → Visual feedback for both layouts
+3. Move buttons with sorted view → move applies to original order
 4. Watch progress for thousands of videos → Consider pruning old entries
 5. Multiple tabs → Watch progress sync (future WebSocket enhancement)
-6. Playlist reorder quota cost → Consider rate limiting (50 units per move!)
+6. Playlist reorder quota cost → 51 units per move (1 list + 50 update)
 
 ---
 
