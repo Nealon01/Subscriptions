@@ -23,6 +23,15 @@ export function setupWebSocket(server) {
       console.log(`[ws] Client disconnected (${clients.size} total)`);
     });
 
+    ws.on('message', (raw) => {
+      try {
+        const msg = JSON.parse(raw.toString());
+        console.log(`[ws] Received "${msg.type}" from client`);
+      } catch {
+        console.warn(`[ws] Received non-JSON message from client: ${raw.toString().slice(0, 100)}`);
+      }
+    });
+
     ws.on('error', (err) => {
       console.error('[ws] Client error:', err.message);
       clients.delete(ws);
@@ -50,5 +59,7 @@ export function broadcast(type, data) {
 
   if (sent > 0) {
     console.log(`[ws] Broadcast "${type}" to ${sent} client(s)`);
+  } else {
+    console.log(`[ws] Broadcast "${type}" (no clients connected)`);
   }
 }

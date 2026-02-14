@@ -4,7 +4,8 @@
   "description": "Personal YouTube subscriptions feed — see everything, sorted by date",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev": "node scripts/dev-logged.js",
+    "dev:raw": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:clean": "node scripts/kill-port.js && npm run dev",
     "dev:server": "node --watch server/index.js",
     "dev:client": "vite",

@@ -4,4 +4,5 @@ api-usage.log
 feed-cache.json
 cache/
 server.log
+dev.log
 nul

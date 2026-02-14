@@ -39,6 +39,7 @@ router.post('/', (req, res) => {
     // Update in-memory session for the current request
     req.session.settings = updatedSettings;
 
+    console.log(`[settings] Updated: ${Object.keys(req.body).join(', ')}`);
     res.json({
       settings: updatedSettings,
     });

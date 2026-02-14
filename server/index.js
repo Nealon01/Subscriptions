@@ -9,6 +9,7 @@ import { createWriteStream } from 'fs';
 import { initDatabase, closeDatabase } from './services/database.js';
 import { sessionMiddleware } from './services/session.js';
 import { setupWebSocket } from './services/websocket.js';
+import { requestLogger } from './middleware/requestLogger.js';
 import authRoutes from './routes/auth.js';
 import feedRoutes from './routes/feed.js';
 import playlistRoutes from './routes/playlist.js';
@@ -76,6 +77,9 @@ if (isDev) {
     credentials: true,
   }));
 }
+
+// Request logger — logs every HTTP request to server.log
+app.use(requestLogger());
 
 // Session middleware -- reads x-session-id header or sid query param
 app.use(sessionMiddleware());

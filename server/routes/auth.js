@@ -43,6 +43,7 @@ router.get('/login', (req, res) => {
     prompt: 'consent',
   });
 
+  console.log(`[auth] Login initiated, returnUrl=${returnUrl || '(none)'}`);
   res.json({ url, state });
 });
 
@@ -103,6 +104,7 @@ router.get('/status', (req, res) => {
  */
 router.post('/logout', (req, res) => {
   if (req.sessionId) {
+    console.log(`[auth] Logout session ${req.sessionId.substring(0, 8)}...`);
     destroySession(req.sessionId);
   }
   res.json({ ok: true });
