@@ -5,6 +5,7 @@ import { createServer } from 'http';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { createWriteStream } from 'fs';
+import { rotateIfNeeded } from './lib/log-rotate.js';
 
 import { initDatabase, closeDatabase } from './services/database.js';
 import { sessionMiddleware } from './services/session.js';
@@ -21,9 +22,11 @@ const __dirname = dirname(__filename);
 const PROJECT_ROOT = join(__dirname, '..');
 
 // ---------------------------------------------------------------------------
-// File logging — mirror all console output to server.log
+// File logging — mirror all console output to logs/server.log
 // ---------------------------------------------------------------------------
-const logStream = createWriteStream(join(PROJECT_ROOT, 'server.log'), { flags: 'a' });
+const serverLogPath = join(PROJECT_ROOT, 'logs', 'server.log');
+rotateIfNeeded(serverLogPath);
+const logStream = createWriteStream(serverLogPath, { flags: 'a' });
 
 const origLog = console.log;
 const origError = console.error;

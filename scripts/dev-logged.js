@@ -9,11 +9,13 @@ import { spawn } from 'child_process';
 import { createWriteStream } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { rotateIfNeeded } from '../server/lib/log-rotate.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 
-const logPath = join(ROOT, 'dev.log');
+const logPath = join(ROOT, 'logs', 'dev.log');
+rotateIfNeeded(logPath);
 const logStream = createWriteStream(logPath, { flags: 'a' });
 
 const ts = () => new Date().toISOString();
