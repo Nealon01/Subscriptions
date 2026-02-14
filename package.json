@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:clean": "node scripts/kill-port.js && npm run dev",
     "dev:server": "node --watch server/index.js",
     "dev:client": "vite",
     "build": "vite build",

@@ -3,4 +3,5 @@ node_modules/
 api-usage.log
 feed-cache.json
 cache/
+server.log
 nul
