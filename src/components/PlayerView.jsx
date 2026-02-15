@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import styles from './PlayerView.module.css';
 
 // Global YouTube IFrame API readiness
@@ -36,6 +36,7 @@ export default function PlayerView({
   const containerRef = useRef(null);
   const progressIntervalRef = useRef(null);
   const markedRef = useRef(null);
+  const completedRef = useRef(null);
   const videoIdRef = useRef(videoId);
   const onVideoEndRef = useRef(onVideoEnd);
   const onProgress90Ref = useRef(onProgress90);
@@ -56,6 +57,14 @@ export default function PlayerView({
       }
     }
 
+    function triggerComplete() {
+      const vid = videoIdRef.current;
+      if (completedRef.current === vid) return; // Already triggered for this video
+      completedRef.current = vid;
+      cleanupInterval();
+      if (onVideoEndRef.current) onVideoEndRef.current();
+    }
+
     function checkProgress() {
       const player = playerRef.current;
       if (!player || !player.getDuration) return;
@@ -65,10 +74,27 @@ export default function PlayerView({
 
       if (duration > 0 && current > 0) {
         const progress = current / duration;
+        const remaining = duration - current;
+
+        // At 90%: mark for removal (used if user manually switches)
         if (progress >= 0.9 && markedRef.current !== videoIdRef.current) {
           markedRef.current = videoIdRef.current;
           if (onProgress90Ref.current) onProgress90Ref.current(videoIdRef.current);
         }
+
+        // Near-completion backup: remove + advance if ENDED event didn't fire
+        if (progress >= 0.98 || remaining < 3) {
+          triggerComplete();
+        }
+      }
+
+      // Also catch ENDED state in case the event handler missed it
+      try {
+        if (player.getPlayerState && player.getPlayerState() === window.YT.PlayerState.ENDED) {
+          triggerComplete();
+        }
+      } catch (e) {
+        // Player may not be ready
       }
     }
 
@@ -88,17 +114,14 @@ export default function PlayerView({
           onStateChange: (event) => {
             if (event.data === window.YT.PlayerState.PLAYING) {
               if (!progressIntervalRef.current) {
-                progressIntervalRef.current = setInterval(checkProgress, 5000);
+                progressIntervalRef.current = setInterval(checkProgress, 3000);
               }
-            } else if (
-              event.data === window.YT.PlayerState.PAUSED ||
-              event.data === window.YT.PlayerState.ENDED
-            ) {
+            } else if (event.data === window.YT.PlayerState.PAUSED) {
               cleanupInterval();
             }
 
             if (event.data === window.YT.PlayerState.ENDED) {
-              if (onVideoEndRef.current) onVideoEndRef.current();
+              triggerComplete();
             }
           },
         },
@@ -123,8 +146,9 @@ export default function PlayerView({
   useEffect(() => {
     if (!videoId || !playerRef.current) return;
 
-    // Reset marked state for new video
+    // Reset marked/completed state for new video
     markedRef.current = null;
+    completedRef.current = null;
 
     const player = playerRef.current;
     if (player.cueVideoById) {

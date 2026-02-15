@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth.js';
 import { useWebSocket } from '../hooks/useWebSocket.js';
 import { useToast } from '../components/Toast.jsx';
@@ -14,7 +14,6 @@ export default function Playlist() {
   const [playlistId, setPlaylistId] = useState(null);
   const [playlistItems, setPlaylistItems] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(-1);
-  const [markedForRemoval, setMarkedForRemoval] = useState(null);
   const markedRef = useRef(null);
 
   // Set page title
@@ -139,10 +138,11 @@ export default function Playlist() {
   // Remove a video from the playlist
   const removeVideo = useCallback(
     (videoId, index, autoPlay = true) => {
-      // Optimistic: remove from UI immediately
-      const snapshot = [...playlistItems];
+      // Capture snapshot inside functional updater to avoid stale closure
+      let snapshot = null;
 
       setPlaylistItems((prev) => {
+        snapshot = prev;
         const next = prev.filter((item) => item.videoId !== videoId);
 
         if (index === currentIndex) {
@@ -165,7 +165,7 @@ export default function Playlist() {
           showToast(autoPlay ? 'Video marked as watched and removed' : 'Removed from playlist', 'success');
         })
         .catch(() => {
-          setPlaylistItems(snapshot);
+          if (snapshot) setPlaylistItems(snapshot);
           showToast('Failed to remove video', 'error');
         });
     },
@@ -253,7 +253,6 @@ export default function Playlist() {
   const handleProgress90 = useCallback(
     (videoId) => {
       markedRef.current = videoId;
-      setMarkedForRemoval(videoId);
     },
     []
   );
