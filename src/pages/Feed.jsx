@@ -415,7 +415,7 @@ export default function Feed() {
     <>
       <TopBar
         channelCount={feed.channels.length}
-        videoCount={feed.videos.length}
+        videoCount={feed.totalVideos}
         filteredVideoCount={isSearchActive ? feed.searchTotal : filteredVideos.length}
         queueCount={playlist.queuedVideoIds.size}
         isAuthenticated={isAuthenticated}

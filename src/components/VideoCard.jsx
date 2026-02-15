@@ -18,7 +18,8 @@ export default function VideoCard({
   compact,
 }) {
   const duration = video.duration ? formatDuration(video.duration) : '';
-  const views = video.views && video.views !== '0' ? `${formatViews(video.views)} views` : '';
+  const viewCount = parseFloat(video.views);
+  const views = viewCount > 0 ? `${formatViews(viewCount)} views` : '';
   const time = video.published ? timeAgo(video.published) : '';
 
   const thumbStyle = !isGrid

@@ -8,6 +8,7 @@ export function useFeed() {
   const [channels, setChannels] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [cacheTimestamp, setCacheTimestamp] = useState(null);
+  const [totalVideos, setTotalVideos] = useState(0);
   const loadedRef = useRef(false);
 
   // Search state
@@ -23,6 +24,7 @@ export function useFeed() {
         setVideos(data.videos);
         setChannels(data.channels || []);
         setCacheTimestamp(data.timestamp);
+        setTotalVideos(data.totalVideos || data.videos.length);
         loadedRef.current = true;
         return data;
       }
@@ -125,6 +127,7 @@ export function useFeed() {
     channels,
     isLoading,
     cacheTimestamp,
+    totalVideos,
     loadFeed,
     setVideos,
     setChannels,

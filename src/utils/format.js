@@ -29,7 +29,9 @@ export function timeAgo(dateStr) {
   if (seconds < 3600) return Math.floor(seconds / 60) + 'm';
   if (seconds < 86400) return Math.floor(seconds / 3600) + 'h';
   if (seconds < 604800) return Math.floor(seconds / 86400) + 'd';
-  return Math.floor(seconds / 604800) + 'w';
+  if (seconds < 2592000) return Math.floor(seconds / 604800) + 'w';
+  if (seconds < 31536000) return Math.floor(seconds / 2592000) + 'mo';
+  return (seconds / 31536000).toFixed(1).replace(/\.0$/, '') + 'y';
 }
 
 /**

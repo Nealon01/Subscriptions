@@ -24,8 +24,8 @@ export default function TopBar({
           <div className={styles.stats}>
             {channelCount} channels &middot;{' '}
             {filteredVideoCount != null && filteredVideoCount !== videoCount
-              ? `${filteredVideoCount} / ${videoCount} videos`
-              : `${videoCount} videos`}
+              ? `${filteredVideoCount.toLocaleString()} / ${videoCount.toLocaleString()} videos`
+              : `${videoCount.toLocaleString()} videos`}
           </div>
         )}
       </div>
