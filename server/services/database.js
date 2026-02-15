@@ -84,6 +84,55 @@ export function initDatabase(dbPath = 'cache/videos.db') {
     // Column already exists — ignore
   }
 
+  // FTS5 full-text search index on videos
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS videos_fts USING fts5(
+      title, channel_name, description,
+      content='videos', content_rowid='rowid',
+      tokenize='unicode61'
+    );
+
+    CREATE TRIGGER IF NOT EXISTS videos_ai AFTER INSERT ON videos BEGIN
+      INSERT INTO videos_fts(rowid, title, channel_name, description)
+      VALUES (new.rowid, new.title, new.channel_name, new.description);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS videos_ad AFTER DELETE ON videos BEGIN
+      INSERT INTO videos_fts(videos_fts, rowid, title, channel_name, description)
+      VALUES('delete', old.rowid, old.title, old.channel_name, old.description);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS videos_au AFTER UPDATE ON videos BEGIN
+      INSERT INTO videos_fts(videos_fts, rowid, title, channel_name, description)
+      VALUES('delete', old.rowid, old.title, old.channel_name, old.description);
+      INSERT INTO videos_fts(rowid, title, channel_name, description)
+      VALUES (new.rowid, new.title, new.channel_name, new.description);
+    END;
+  `);
+
+  // Auto-populate FTS index if videos exist but index is empty.
+  // NOTE: With content='videos', COUNT(*) on the FTS table returns the content table
+  // row count, NOT the actual index size. We test with a real MATCH query instead.
+  const videoCount = db.prepare('SELECT COUNT(*) as c FROM videos').get().c;
+  if (videoCount > 0) {
+    let needsRebuild = false;
+    try {
+      const sample = db.prepare('SELECT title FROM videos LIMIT 1').get();
+      const word = sample?.title?.match(/[\p{L}\p{N}]+/u)?.[0];
+      if (word) {
+        const hits = db.prepare('SELECT COUNT(*) as c FROM videos_fts WHERE videos_fts MATCH ?').get(word + '*').c;
+        needsRebuild = hits === 0;
+      }
+    } catch {
+      needsRebuild = true;
+    }
+    if (needsRebuild) {
+      console.log(`[database] FTS index empty — rebuilding for ${videoCount} existing videos...`);
+      db.exec(`INSERT INTO videos_fts(videos_fts) VALUES('rebuild')`);
+      console.log('[database] FTS index rebuild complete');
+    }
+  }
+
   return db;
 }
 
@@ -324,6 +373,150 @@ export function latestCheck() {
     .prepare('SELECT MAX(last_checked) as latest FROM channels')
     .get();
   return row.latest || null;
+}
+
+// ---------------------------------------------------------------------------
+// Full-text search
+// ---------------------------------------------------------------------------
+
+/**
+ * Sanitize user input for FTS5 query syntax.
+ * Wraps each token in double-quotes to treat as literal phrases,
+ * preventing FTS5 syntax errors from AND, OR, NOT, NEAR, asterisk, etc.
+ * @param {string} query - Raw user input
+ * @returns {string} FTS5-safe query string
+ */
+function sanitizeFtsQuery(query) {
+  if (!query || !query.trim()) return '';
+
+  const tokens = [];
+  const regex = /"([^"]*)"|\S+/g;
+  let match;
+  const FTS5_KEYWORDS = new Set(['AND', 'OR', 'NOT', 'NEAR']);
+
+  while ((match = regex.exec(query)) !== null) {
+    if (match[1] !== undefined) {
+      // User-quoted phrase — exact phrase match
+      const phrase = match[1].trim();
+      if (phrase) {
+        tokens.push('"' + phrase.replace(/"/g, '""') + '"');
+      }
+    } else {
+      // Bare word — split on non-token characters (matching unicode61 tokenizer)
+      // and use prefix matching so "soup" matches "souprs", "soupy", etc.
+      const parts = match[0].replace(/[^\p{L}\p{M}\p{N}]/gu, ' ').trim().split(/\s+/);
+
+      for (const part of parts) {
+        if (!part) continue;
+
+        if (FTS5_KEYWORDS.has(part.toUpperCase())) {
+          // Quote FTS5 operators so they're treated as literal search terms
+          tokens.push('"' + part + '"');
+        } else {
+          // Prefix match: "soup" -> soup* (matches soup, souprs, soupy, etc.)
+          tokens.push(part + '*');
+        }
+      }
+    }
+  }
+
+  return tokens.join(' ');
+}
+
+/**
+ * Parse ISO 8601 duration to total minutes.
+ * PT4M13S -> 4.22, PT1H2M3S -> 62.05
+ * @param {string} isoDuration
+ * @returns {number|null}
+ */
+function parseDurationMinutes(isoDuration) {
+  if (!isoDuration) return null;
+  const match = isoDuration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!match) return null;
+  const hours = parseInt(match[1] || '0', 10);
+  const minutes = parseInt(match[2] || '0', 10);
+  const seconds = parseInt(match[3] || '0', 10);
+  return hours * 60 + minutes + seconds / 60;
+}
+
+/**
+ * Full-text search on videos using FTS5.
+ * @param {{ query: string, timeRange?: string, durationFilter?: { min: number, max: number }, sort?: 'date'|'relevance', limit?: number, offset?: number }} params
+ * @returns {{ results: Array<object>, total: number }}
+ */
+export function searchVideos({ query, timeRange = 'all', durationFilter, sort = 'date', limit = 30, offset = 0 }) {
+  const ftsQuery = sanitizeFtsQuery(query);
+  if (!ftsQuery) return { results: [], total: 0 };
+
+  const whereClauses = [];
+  const params = { query: ftsQuery };
+
+  // Time range filter
+  if (timeRange !== 'all') {
+    whereClauses.push('v.published >= @cutoff');
+    const now = new Date();
+    if (timeRange === 'today') {
+      params.cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    } else if (timeRange === 'week') {
+      params.cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    } else if (timeRange === 'month') {
+      params.cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    }
+  }
+
+  const whereStr = whereClauses.length > 0 ? 'AND ' + whereClauses.join(' AND ') : '';
+
+  const countSql = `
+    SELECT COUNT(*) as total
+    FROM videos_fts
+    JOIN videos v ON v.rowid = videos_fts.rowid
+    WHERE videos_fts MATCH @query
+    ${whereStr}
+  `;
+
+  const resultSql = `
+    SELECT
+      v.video_id AS videoId,
+      v.channel_id AS channelId,
+      v.title,
+      v.channel_name AS channelName,
+      v.published,
+      v.thumbnail,
+      SUBSTR(v.description, 1, 200) AS description,
+      v.duration,
+      v.views,
+      rank
+    FROM videos_fts
+    JOIN videos v ON v.rowid = videos_fts.rowid
+    WHERE videos_fts MATCH @query
+    ${whereStr}
+    ORDER BY ${sort === 'relevance' ? 'rank' : 'v.published DESC'}
+    LIMIT @limit OFFSET @offset
+  `;
+
+  const allParams = { ...params, limit, offset };
+  const { total } = getDb().prepare(countSql).get(allParams);
+  let results = getDb().prepare(resultSql).all(allParams);
+
+  // Post-filter duration (ISO 8601 can't be compared in SQL)
+  if (durationFilter && (durationFilter.min > 0 || durationFilter.max < Infinity)) {
+    results = results.filter(v => {
+      const minutes = parseDurationMinutes(v.duration);
+      if (minutes === null) return true;
+      if (durationFilter.min > 0 && minutes < durationFilter.min) return false;
+      if (durationFilter.max < Infinity && minutes > durationFilter.max) return false;
+      return true;
+    });
+  }
+
+  return { results, total };
+}
+
+/**
+ * Rebuild the FTS5 index from the videos table.
+ */
+export function rebuildFtsIndex() {
+  getDb().exec(`INSERT INTO videos_fts(videos_fts) VALUES('rebuild')`);
 }
 
 // ---------------------------------------------------------------------------

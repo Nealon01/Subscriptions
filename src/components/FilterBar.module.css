@@ -8,10 +8,15 @@
   flex-wrap: wrap;
 }
 
-.searchInput {
+.searchWrapper {
   flex: 1;
   min-width: 200px;
-  padding: 8px 12px;
+  position: relative;
+}
+
+.searchInput {
+  width: 100%;
+  padding: 8px 30px 8px 12px;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -51,6 +56,48 @@
   background: var(--accent-muted);
   border-color: rgba(226, 54, 54, 0.3);
   color: var(--accent);
+}
+
+.sortDivider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+}
+
+.clearButton {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+.clearButton:hover {
+  color: var(--text-primary);
+}
+
+.searchSpinner {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border-light);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: translateY(-50%) rotate(360deg); }
 }
 
 @media (max-width: 640px) {

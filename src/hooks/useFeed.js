@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import { getFeed } from '../services/api.js';
+import { getFeed, searchFeed } from '../services/api.js';
 import { parseDurationToMinutes } from '../utils/format.js';
 import { matchesSearch } from '../utils/search.js';
 
@@ -9,6 +9,11 @@ export function useFeed() {
   const [isLoading, setIsLoading] = useState(false);
   const [cacheTimestamp, setCacheTimestamp] = useState(null);
   const loadedRef = useRef(false);
+
+  // Search state
+  const [searchResults, setSearchResults] = useState(null);
+  const [searchTotal, setSearchTotal] = useState(0);
+  const [isSearching, setIsSearching] = useState(false);
 
   const loadFeed = useCallback(async () => {
     setIsLoading(true);
@@ -30,6 +35,50 @@ export function useFeed() {
     }
   }, []);
 
+  // Server-side FTS5 search
+  const doSearch = useCallback(async ({ query, timeRange, durationFilter, sort = 'date', limit = 30, offset = 0 }) => {
+    if (!query || !query.trim()) {
+      setSearchResults(null);
+      setSearchTotal(0);
+      return null;
+    }
+
+    setIsSearching(true);
+    try {
+      const data = await searchFeed({
+        query,
+        timeRange,
+        durationMin: durationFilter?.min || 0,
+        durationMax: durationFilter?.max,
+        sort,
+        limit,
+        offset,
+      });
+      if (data && data.videos) {
+        if (offset === 0) {
+          setSearchResults(data.videos);
+        } else {
+          setSearchResults(prev => prev ? [...prev, ...data.videos] : data.videos);
+        }
+        setSearchTotal(data.searchTotal || 0);
+        if (data.channels) setChannels(data.channels);
+        return data;
+      }
+      return null;
+    } catch (err) {
+      console.error('Failed to search:', err);
+      return null;
+    } finally {
+      setIsSearching(false);
+    }
+  }, []);
+
+  const clearSearch = useCallback(() => {
+    setSearchResults(null);
+    setSearchTotal(0);
+  }, []);
+
+  // Client-side filtering (for non-search feed view)
   const getFilteredVideos = useCallback(
     (searchQuery = '', timeRange = 'all', durationFilter = { min: 0, max: Infinity }) => {
       let vids = videos;
@@ -82,5 +131,11 @@ export function useFeed() {
     setCacheTimestamp,
     getFilteredVideos,
     hasLoaded: loadedRef.current,
+    // Search
+    searchResults,
+    searchTotal,
+    isSearching,
+    doSearch,
+    clearSearch,
   };
 }

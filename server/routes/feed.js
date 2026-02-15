@@ -7,6 +7,7 @@ import {
   getAllChannels,
   latestCheck,
   totalVideos,
+  searchVideos,
   upsertChannel,
   getChannel,
   getChannelVideoIds,
@@ -31,10 +32,50 @@ let refreshInProgress = false;
 
 /**
  * GET /api/feed
- * Returns all cached videos, channels, and cache metadata.
+ * Returns cached videos, channels, and cache metadata.
+ * When ?q= is provided, performs FTS5 full-text search with pagination.
+ *
+ * Query params (all optional):
+ *   q           - Search query (triggers FTS5 mode)
+ *   timeRange   - 'today' | 'week' | 'month' | 'all' (default: 'all')
+ *   durationMin - Min duration in minutes (default: 0)
+ *   durationMax - Max duration in minutes (default: Infinity)
+ *   limit       - Results per page, max 100 (default: 30)
+ *   offset      - Pagination offset (default: 0)
  */
 router.get('/', (req, res) => {
   try {
+    const { q, timeRange, durationMin, durationMax, sort, limit, offset } = req.query;
+
+    // FTS5 search mode
+    if (q && q.trim()) {
+      const durationFilter = {
+        min: durationMin ? parseFloat(durationMin) : 0,
+        max: durationMax ? parseFloat(durationMax) : Infinity,
+      };
+
+      const { results, total: searchTotal } = searchVideos({
+        query: q.trim(),
+        timeRange: timeRange || 'all',
+        durationFilter,
+        sort: sort === 'relevance' ? 'relevance' : 'date',
+        limit: limit ? Math.min(parseInt(limit, 10), 100) : 30,
+        offset: offset ? parseInt(offset, 10) : 0,
+      });
+
+      return res.json({
+        videos: results,
+        searchTotal,
+        isSearch: true,
+        channels: getAllChannels(),
+        lastChecked: latestCheck(),
+        totalVideos: totalVideos(),
+        timestamp: latestCheck() ? new Date(latestCheck()).getTime() : null,
+        quotaStatus: quota.getStatus(),
+      });
+    }
+
+    // Standard feed mode (no search)
     const videos = getAllVideos();
     const channels = getAllChannels();
     const lastChecked = latestCheck();

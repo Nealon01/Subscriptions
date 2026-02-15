@@ -24,7 +24,7 @@ describe('FilterBar', () => {
     );
 
     // Should render the search input
-    const searchInput = screen.getByPlaceholderText('Search videos or channels...');
+    const searchInput = screen.getByPlaceholderText('Search videos, channels, or descriptions...');
     expect(searchInput).toBeInTheDocument();
 
     // Should render all 4 time range chips
@@ -45,7 +45,7 @@ describe('FilterBar', () => {
       />
     );
 
-    const searchInput = screen.getByPlaceholderText('Search videos or channels...');
+    const searchInput = screen.getByPlaceholderText('Search videos, channels, or descriptions...');
     fireEvent.change(searchInput, { target: { value: 'react tutorial' } });
 
     expect(handleSearch).toHaveBeenCalledTimes(1);

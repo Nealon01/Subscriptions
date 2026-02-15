@@ -27,6 +27,8 @@ import {
   touchSession,
   getQuotaUsage,
   saveQuotaUsage,
+  searchVideos,
+  rebuildFtsIndex,
 } from '../../server/services/database.js';
 
 /**
@@ -58,6 +60,8 @@ export function createTestDatabase() {
     touchSession,
     getQuotaUsage,
     saveQuotaUsage,
+    searchVideos,
+    rebuildFtsIndex,
   };
 }
 

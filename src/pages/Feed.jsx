@@ -28,6 +28,7 @@ export default function Feed() {
   // UI state
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchSort, setSearchSort] = useState('date');
   const [timeRange, setTimeRange] = useState('all');
   const [displayCount, setDisplayCount] = useState(VIDEOS_PER_PAGE);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -51,16 +52,65 @@ export default function Feed() {
     return map;
   }, [feed.channels]);
 
-  // Filtered videos
-  const filteredVideos = useMemo(
-    () => feed.getFilteredVideos(searchQuery, timeRange, settings.durationFilter || { min: 0, max: Infinity }),
-    [feed.getFilteredVideos, searchQuery, timeRange, settings.durationFilter]
+  // Immediate handler for each keystroke — does NOT clear server results
+  // to avoid flashing client-side results before server responds
+  const handleSearchChange = useCallback((value) => {
+    setSearchQuery(value);
+    // When fully cleared, immediately drop search results
+    if (!value.trim()) feed.clearSearch();
+  }, [feed]);
+
+  // Search handler (called by FilterBar after 300ms debounce)
+  const handleSearchSubmit = useCallback(
+    (query) => {
+      if (!query || !query.trim()) {
+        feed.clearSearch();
+        return;
+      }
+      setDisplayCount(VIDEOS_PER_PAGE);
+      feed.doSearch({
+        query,
+        timeRange,
+        durationFilter: settings.durationFilter || { min: 0, max: Infinity },
+        sort: searchSort,
+        limit: VIDEOS_PER_PAGE,
+        offset: 0,
+      });
+    },
+    [feed, timeRange, settings.durationFilter, searchSort]
   );
 
-  const videosToShow = useMemo(
-    () => filteredVideos.slice(0, displayCount),
-    [filteredVideos, displayCount]
-  );
+  // Sort change handler — re-triggers search with new sort order
+  const handleSearchSortChange = useCallback((sort) => {
+    setSearchSort(sort);
+    if (searchQuery && searchQuery.trim()) {
+      setDisplayCount(VIDEOS_PER_PAGE);
+      feed.doSearch({
+        query: searchQuery,
+        timeRange,
+        durationFilter: settings.durationFilter || { min: 0, max: Infinity },
+        sort,
+        limit: VIDEOS_PER_PAGE,
+        offset: 0,
+      });
+    }
+  }, [feed, searchQuery, timeRange, settings.durationFilter]);
+
+  const isSearchActive = !!(searchQuery && searchQuery.trim() && feed.searchResults !== null);
+
+  // Filtered videos — text search is server-only (no client-side text filtering)
+  const filteredVideos = useMemo(() => {
+    if (isSearchActive) {
+      return feed.searchResults;
+    }
+    // Only apply time/duration filters client-side — never text search
+    return feed.getFilteredVideos('', timeRange, settings.durationFilter || { min: 0, max: Infinity });
+  }, [isSearchActive, feed.searchResults, feed.getFilteredVideos, timeRange, settings.durationFilter]);
+
+  const videosToShow = useMemo(() => {
+    if (isSearchActive) return filteredVideos;
+    return filteredVideos.slice(0, displayCount);
+  }, [filteredVideos, displayCount, isSearchActive]);
 
   // Count videos per date label (from full filtered list, not just loaded slice)
   const dateCounts = useMemo(() => {
@@ -215,7 +265,23 @@ export default function Feed() {
       const threshold = document.documentElement.scrollHeight - 500;
 
       if (scrollPosition > threshold) {
-        if (displayCount < filteredVideos.length) {
+        if (isSearchActive) {
+          // Server-side pagination for search results
+          if (feed.searchResults && feed.searchResults.length < feed.searchTotal) {
+            isLoadingMoreRef.current = true;
+            feed.doSearch({
+              query: searchQuery,
+              timeRange,
+              durationFilter: settings.durationFilter || { min: 0, max: Infinity },
+              sort: searchSort,
+              limit: VIDEOS_PER_PAGE,
+              offset: feed.searchResults.length,
+            }).finally(() => {
+              setTimeout(() => { isLoadingMoreRef.current = false; }, 100);
+            });
+          }
+        } else if (displayCount < filteredVideos.length) {
+          // Client-side pagination for feed view
           isLoadingMoreRef.current = true;
           setDisplayCount((prev) => prev + VIDEOS_PER_PAGE);
           setTimeout(() => {
@@ -227,7 +293,7 @@ export default function Feed() {
 
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
-  }, [displayCount, filteredVideos.length]);
+  }, [displayCount, filteredVideos.length, isSearchActive, feed, searchQuery, timeRange, settings.durationFilter, searchSort]);
 
   // When collapsing sections, auto-load more if page becomes too short to scroll
   useEffect(() => {
@@ -243,10 +309,20 @@ export default function Feed() {
     requestAnimationFrame(check);
   }, [collapsedDates, displayCount, filteredVideos.length]);
 
-  // Reset display count when filters change
+  // Reset display count when filters change; re-trigger search if active
   useEffect(() => {
     setDisplayCount(VIDEOS_PER_PAGE);
-  }, [searchQuery, timeRange, settings.durationFilter]);
+    if (searchQuery && searchQuery.trim()) {
+      feed.doSearch({
+        query: searchQuery,
+        timeRange,
+        durationFilter: settings.durationFilter || { min: 0, max: Infinity },
+        sort: searchSort,
+        limit: VIDEOS_PER_PAGE,
+        offset: 0,
+      });
+    }
+  }, [timeRange, settings.durationFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Refresh handler
   const doRefresh = useCallback(
@@ -340,7 +416,7 @@ export default function Feed() {
       <TopBar
         channelCount={feed.channels.length}
         videoCount={feed.videos.length}
-        filteredVideoCount={filteredVideos.length}
+        filteredVideoCount={isSearchActive ? feed.searchTotal : filteredVideos.length}
         queueCount={playlist.queuedVideoIds.size}
         isAuthenticated={isAuthenticated}
         refreshActive={refreshActive}
@@ -361,9 +437,13 @@ export default function Feed() {
           />
           <FilterBar
             searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
+            onSearchChange={handleSearchChange}
+            onSearchSubmit={handleSearchSubmit}
             timeRange={timeRange}
             onTimeRangeChange={setTimeRange}
+            isSearching={feed.isSearching}
+            searchSort={searchSort}
+            onSearchSortChange={handleSearchSortChange}
           />
         </div>
       )}
@@ -418,6 +498,25 @@ export default function Feed() {
                 <h2>No videos found</h2>
                 <p>Try adjusting your search or time filter.</p>
               </div>
+            ) : isSearchActive ? (
+              <VideoGrid
+                videosPerRow={settings.videosPerRow}
+                density={settings.density}
+              >
+                {videosToShow.map((video) => (
+                  <VideoCard
+                    key={video.videoId}
+                    video={video}
+                    isQueued={playlist.queuedVideoIds.has(video.videoId)}
+                    thumbSize={settings.thumbSize}
+                    isGrid={isGrid}
+                    channelThumbnail={channelThumbnailMap[video.channelId]}
+                    onThumbnailClick={handleThumbnailClick}
+                    onTitleClick={handleTitleClick}
+                    onChannelClick={handleChannelClick}
+                  />
+                ))}
+              </VideoGrid>
             ) : (
               (() => {
                 // Group items by date for VideoGrid containers

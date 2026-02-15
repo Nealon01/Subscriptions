@@ -30,6 +30,21 @@ export async function getFeed() {
   return resp.json();
 }
 
+export async function searchFeed({ query, timeRange, durationMin, durationMax, sort, limit = 30, offset = 0 }) {
+  const params = new URLSearchParams();
+  params.set('q', query);
+  if (timeRange && timeRange !== 'all') params.set('timeRange', timeRange);
+  if (durationMin > 0) params.set('durationMin', String(durationMin));
+  if (durationMax && durationMax < Infinity) params.set('durationMax', String(durationMax));
+  if (sort && sort !== 'date') params.set('sort', sort);
+  params.set('limit', String(limit));
+  params.set('offset', String(offset));
+
+  const resp = await fetch(`${API_BASE}/feed?${params.toString()}`);
+  if (!resp.ok) return null;
+  return resp.json();
+}
+
 export async function triggerRefresh(sessionId) {
   const resp = await fetch(`${API_BASE}/feed/refresh`, {
     method: 'POST',
