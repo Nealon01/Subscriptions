@@ -380,9 +380,26 @@ export function latestCheck() {
 // ---------------------------------------------------------------------------
 
 /**
+ * Field prefix aliases → FTS5 column names.
+ * Usage: title:cheese, channel:"Winter Starcraft", desc:tutorial
+ */
+const FIELD_MAP = {
+  'title': 'title', 't': 'title',
+  'channel': 'channel_name', 'ch': 'channel_name',
+  'description': 'description', 'desc': 'description',
+};
+
+/**
  * Sanitize user input for FTS5 query syntax.
- * Wraps each token in double-quotes to treat as literal phrases,
- * preventing FTS5 syntax errors from AND, OR, NOT, NEAR, asterisk, etc.
+ *
+ * Supported syntax:
+ *   word          — prefix match (word*)
+ *   "exact phrase" — phrase match
+ *   title:word    — field-specific prefix match
+ *   channel:"phrase" — field-specific phrase match
+ *
+ * Field aliases: title/t, channel/ch, description/desc
+ *
  * @param {string} query - Raw user input
  * @returns {string} FTS5-safe query string
  */
@@ -390,30 +407,53 @@ function sanitizeFtsQuery(query) {
   if (!query || !query.trim()) return '';
 
   const tokens = [];
-  const regex = /"([^"]*)"|\S+/g;
+  // Match: field:"phrase" | "phrase" | non-whitespace token
+  const regex = /(\w+):"([^"]*)"|"([^"]*)"|\S+/g;
   let match;
   const FTS5_KEYWORDS = new Set(['AND', 'OR', 'NOT', 'NEAR']);
 
   while ((match = regex.exec(query)) !== null) {
-    if (match[1] !== undefined) {
-      // User-quoted phrase — exact phrase match
-      const phrase = match[1].trim();
+    if (match[1] !== undefined && match[2] !== undefined) {
+      // Field-specific quoted phrase: title:"diamond in the ruff"
+      const field = FIELD_MAP[match[1].toLowerCase()];
+      const phrase = match[2].trim();
+      if (field && phrase) {
+        tokens.push(field + ' : "' + phrase.replace(/"/g, '""') + '"');
+      } else if (phrase) {
+        // Unknown field prefix — treat the whole thing as a quoted phrase
+        tokens.push('"' + phrase.replace(/"/g, '""') + '"');
+      }
+    } else if (match[3] !== undefined) {
+      // Standalone quoted phrase: "diamond in the ruff"
+      const phrase = match[3].trim();
       if (phrase) {
         tokens.push('"' + phrase.replace(/"/g, '""') + '"');
       }
     } else {
-      // Bare word — split on non-token characters (matching unicode61 tokenizer)
-      // and use prefix matching so "soup" matches "souprs", "soupy", etc.
-      const parts = match[0].replace(/[^\p{L}\p{M}\p{N}]/gu, ' ').trim().split(/\s+/);
+      const raw = match[0];
+      const colonIdx = raw.indexOf(':');
 
+      // Field-specific bare word: channel:PiG
+      if (colonIdx > 0 && colonIdx < raw.length - 1) {
+        const prefix = raw.substring(0, colonIdx);
+        const field = FIELD_MAP[prefix.toLowerCase()];
+        if (field) {
+          const value = raw.substring(colonIdx + 1);
+          const parts = value.replace(/[^\p{L}\p{M}\p{N}]/gu, ' ').trim().split(/\s+/);
+          for (const part of parts) {
+            if (part) tokens.push(field + ' : ' + part + '*');
+          }
+          continue;
+        }
+      }
+
+      // Regular bare word — prefix match
+      const parts = raw.replace(/[^\p{L}\p{M}\p{N}]/gu, ' ').trim().split(/\s+/);
       for (const part of parts) {
         if (!part) continue;
-
         if (FTS5_KEYWORDS.has(part.toUpperCase())) {
-          // Quote FTS5 operators so they're treated as literal search terms
           tokens.push('"' + part + '"');
         } else {
-          // Prefix match: "soup" -> soup* (matches soup, souprs, soupy, etc.)
           tokens.push(part + '*');
         }
       }
